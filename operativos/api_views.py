@@ -4,7 +4,7 @@ from pymongo.errors import PyMongoError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from common.nucleo_client import (validar_sesion_nucleo, obtener_sedes, obtener_especies)
-from .services import guardar_operativo
+from .services import guardar_operativo, listar_operativos
 
 
 
@@ -23,6 +23,9 @@ def respuesta_error(codigo, mensaje, status):
 
 @csrf_exempt
 def crear_operativo_api(request):
+
+    if request.method == "GET":
+        return listar_operativos_api(request)
 
     if request.method != "POST":
         return respuesta_error(
@@ -231,3 +234,120 @@ def crear_operativo_api(request):
         },
         status=201
 )
+
+
+def listar_operativos_api(request):
+
+    # Obtener el token del encabezado Authorization
+    authorization = request.headers.get("Authorization", "")
+    esquema, separador, token = authorization.partition(" ")
+
+    if esquema.lower() != "bearer" or not separador or not token.strip():
+        return respuesta_error(
+            "TOKEN_REQUERIDO",
+            "Debe proporcionar un token de autenticación.",
+            401
+        )
+
+    # Validar la sesión con el Núcleo Común
+    try:
+        usuario = validar_sesion_nucleo(token.strip())
+
+    except RuntimeError:
+        return respuesta_error(
+            "NUCLEO_NO_DISPONIBLE",
+            "No fue posible validar la sesión.",
+            503
+        )
+
+    except ValueError:
+        return respuesta_error(
+            "RESPUESTA_NUCLEO_INVALIDA",
+            "No fue posible procesar la respuesta del núcleo.",
+            502
+        )
+
+    if usuario is None:
+        return respuesta_error(
+            "TOKEN_INVALIDO",
+            "El token no es válido o ha expirado.",
+            401
+        )
+
+    # Comprobar los perfiles autorizados para consultar
+    perfil = str(usuario.get("perfil", "")).strip().lower()
+
+    perfiles_permitidos = [
+        "vecino",
+        "funcionario",
+        "veterinario",
+        "jefatura"
+    ]
+
+    if perfil not in perfiles_permitidos:
+        return respuesta_error(
+            "PERFIL_NO_AUTORIZADO",
+            "No tiene permisos para consultar los operativos.",
+            403
+        )
+
+    # Obtener parámetros de paginación
+    try:
+        page = int(request.GET.get("page", "1"))
+        limit = int(request.GET.get("limit", "20"))
+
+    except (TypeError, ValueError):
+        return respuesta_error(
+            "PAGINACION_INVALIDA",
+            "Los parámetros page y limit deben ser números enteros.",
+            400
+        )
+
+    if page < 1 or limit < 1 or limit > 100:
+        return respuesta_error(
+            "PAGINACION_INVALIDA",
+            "page debe ser mayor que cero y limit debe estar entre 1 y 100.",
+            400
+        )
+
+    # Consultar los operativos en MongoDB
+    try:
+        total, documentos = listar_operativos(page, limit)
+
+    except (RuntimeError, PyMongoError):
+        return respuesta_error(
+            "ERROR_BASE_DATOS",
+            "No fue posible consultar los operativos.",
+            500
+        )
+
+    # Preparar los documentos para la respuesta JSON
+    datos = []
+
+    for documento in documentos:
+
+        fecha = documento["fechaHora"]
+
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=datetime_timezone.utc)
+        else:
+            fecha = fecha.astimezone(datetime_timezone.utc)
+
+        datos.append({
+            "id": str(documento["_id"]),
+            "tipoOperativo": documento["tipoOperativo"],
+            "fechaHora": fecha.isoformat().replace("+00:00", "Z"),
+            "sedeId": documento["sedeId"],
+            "cuposPorEspecie": documento["cuposPorEspecie"]
+        })
+
+    # Calcular la cantidad total de páginas
+    total_paginas = (total + limit - 1) // limit
+
+    return JsonResponse({
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "totalPaginas": total_paginas,
+        "datos": datos
+    }, status=200)
