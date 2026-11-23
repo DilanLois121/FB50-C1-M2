@@ -83,6 +83,50 @@ def obtener_especies(page=1, limit=20):
     return especies
 
 
+
+def iniciar_sesion_nucleo(rut, clave):
+
+    if not NUCLEO_COMUN_URL:
+        raise RuntimeError("No se configuró NUCLEO_COMUN_URL.")
+
+    url = f"{NUCLEO_COMUN_URL.rstrip('/')}/api/nucleo/sesiones"
+
+    try:
+        respuesta = requests.post(
+            url,
+            json={
+                "rut": rut,
+                "clave": clave
+            },
+            timeout=15
+        )
+
+        if respuesta.status_code in (400, 401):
+            return None
+
+        respuesta.raise_for_status()
+
+        datos = respuesta.json()
+
+    except requests.RequestException as error:
+        raise RuntimeError(
+            "No fue posible iniciar sesión con el núcleo."
+        ) from error
+
+    except ValueError as error:
+        raise RuntimeError(
+            "El núcleo devolvió una respuesta que no es JSON válido."
+        ) from error
+
+    if not isinstance(datos, dict) or not datos.get("token"):
+        raise RuntimeError(
+            "La respuesta del núcleo no contiene un token válido."
+        )
+
+    return datos["token"]
+
+
+
 def validar_sesion_nucleo(token):
 
     if not token:

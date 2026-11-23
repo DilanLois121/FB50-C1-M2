@@ -13,6 +13,11 @@
 
 <body>
 
+    <form method="post" action="{% url 'cerrar_sesion' %}">
+    {% csrf_token %}
+    <button type="submit">Cerrar sesión</button>
+    </form>
+
     <h1>Registrar nuevo operativo</h1>
 
     <p>Complete los datos para programar un operativo.</p>

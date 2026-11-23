@@ -9,10 +9,100 @@ from pymongo.errors import PyMongoError
 from .forms import OperativoForm
 from .services import guardar_operativo
 
-from common.nucleo_client import obtener_sedes, obtener_especies
+from common.nucleo_client import obtener_sedes, obtener_especies, iniciar_sesion_nucleo, validar_sesion_nucleo
+
+from django.views.decorators.http import require_POST
+
+
+
+def iniciar_sesion(request):
+
+    if request.method == "POST":
+
+        rut = request.POST.get("rut", "").strip()
+        clave = request.POST.get("clave", "")
+
+        if not rut or not clave:
+            messages.error(request, "Debe ingresar RUT y clave.")
+
+        else:
+            try:
+                token = iniciar_sesion_nucleo(rut, clave)
+
+                if token is None:
+                    messages.error(request, "RUT o clave incorrectos.")
+
+                else:
+                    usuario = validar_sesion_nucleo(token)
+
+                    if usuario is None:
+                        messages.error(request, "No fue posible validar la sesión.")
+
+                    elif usuario["perfil"] not in ("funcionario", "jefatura"):
+                        messages.error(
+                            request,
+                            "No tiene permisos para acceder a esta sección."
+                        )
+
+                    else:
+                        request.session.cycle_key()
+                        request.session["token_nucleo"] = token
+                        request.session["rut_usuario"] = usuario["rut"]
+                        request.session["perfil_usuario"] = usuario["perfil"]
+
+                        return redirect("crear_operativo")
+
+            except (RuntimeError, ValueError):
+                messages.error(
+                    request,
+                    "No fue posible comunicarse con el núcleo. Intente nuevamente."
+                )
+
+    return render(request, "operativos/login.html")
+
+@require_POST
+def cerrar_sesion(request):
+
+    request.session.flush()
+
+    return redirect("iniciar_sesion")
+
 
 
 def crear_operativo(request):
+
+
+    token = request.session.get("token_nucleo")
+
+    if not token:
+        return redirect("iniciar_sesion")
+
+    try:
+        usuario = validar_sesion_nucleo(token)
+
+    except RuntimeError:
+        messages.error(
+            request,
+            "No fue posible validar la sesión. Intente nuevamente."
+        )
+        return redirect("iniciar_sesion")
+
+    if usuario is None:
+        request.session.flush()
+        messages.warning(
+            request,
+            "Su sesión ha expirado. Inicie sesión nuevamente."
+        )
+        return redirect("iniciar_sesion")
+
+    if usuario["perfil"] not in ("funcionario", "jefatura"):
+        request.session.flush()
+        messages.error(
+            request,
+            "No tiene permisos para crear operativos."
+        )
+        return redirect("iniciar_sesion")
+
 
     error = None
 
