@@ -14,7 +14,6 @@ from common.nucleo_client import obtener_sedes, obtener_especies, iniciar_sesion
 from django.views.decorators.http import require_POST
 
 
-
 def iniciar_sesion(request):
 
     if request.method == "POST":

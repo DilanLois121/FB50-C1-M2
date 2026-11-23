@@ -233,7 +233,7 @@ def crear_operativo_api(request):
             "id": operativo_id
         },
         status=201
-)
+    )
 
 
 def listar_operativos_api(request):
