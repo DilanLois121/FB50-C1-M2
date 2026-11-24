@@ -58,6 +58,61 @@ class RegistroAtencionTests(SimpleTestCase):
                 microchip=None
             )
 
+    @patch("atenciones.services._coleccion")
+    def test_microchip_duplicado_es_rechazado(self, mock_coleccion):
+        inscripcion_id = ObjectId()
+        operativo_id = ObjectId()
+
+        inscripcion = {
+            "_id": inscripcion_id,
+            "operativoId": str(operativo_id),
+            "animalId": "animal-123",
+            "estado": "confirmada"
+        }
+
+        operativo = {
+            "_id": operativo_id,
+            "tipoOperativo": "chipeo"
+        }
+
+        inscripciones = MagicMock()
+        operativos = MagicMock()
+        atenciones = MagicMock()
+
+        inscripciones.find_one.return_value = inscripcion
+        operativos.find_one.return_value = operativo
+
+        # Simular que el microchip ya existe.
+        atenciones.find_one.return_value = {
+            "_id": ObjectId(),
+            "microchip": "123456789012345"
+        }
+
+        # Simular las llamadas a las colecciones.
+        # La colección atenciones se solicita dos veces.
+        mock_coleccion.side_effect = [
+            inscripciones,
+            operativos,
+            atenciones,
+            atenciones
+        ]
+
+        with self.assertRaises(ErrorAtenciones) as contexto:
+            registrar_atencion(
+                inscripcion_id=str(inscripcion_id),
+                usuario={"rut": "12345678-9"},
+                perfil="veterinario",
+                microchip="123456789012345"
+            )
+
+        self.assertEqual(
+            contexto.exception.codigo,
+            "MICROCHIP_DUPLICADO"
+        )
+
+        # No debe modificar la inscripción.
+        inscripciones.update_one.assert_not_called()
+
 
 class CierreOperativoTests(SimpleTestCase):
 
