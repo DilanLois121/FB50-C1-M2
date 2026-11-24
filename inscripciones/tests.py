@@ -5,7 +5,11 @@ from unittest.mock import patch
 from django.test import RequestFactory, SimpleTestCase
 
 from .models import Inscripcion
-from .serializers import ErrorValidacionInscripcion, InscripcionSerializer
+from .serializers import (
+    ErrorSalidaInscripcion,
+    ErrorValidacionInscripcion,
+    InscripcionSerializer,
+)
 from .services import (
     ErrorInscripciones,
     _obtener_animal,
@@ -44,6 +48,46 @@ class InscripcionSerializerTests(SimpleTestCase):
         )
         with self.assertRaises(ErrorValidacionInscripcion):
             InscripcionSerializer.validar_cambio_estado({"estado": "atendida"})
+
+    def test_salida_solo_expone_campos_permitidos_y_normaliza_fecha(self):
+        representacion = InscripcionSerializer.representar({
+            "_id": "inscripcion-1",
+            "operativoId": "operativo-1",
+            "animalId": "animal-1",
+            "rutSolicitante": "12345678-9",
+            "estado": "solicitada",
+            "fechaCreacion": "2026-11-24T12:00:00-03:00",
+            "nombreSolicitante": "Dato que no debe exponerse",
+        })
+
+        self.assertEqual(
+            set(representacion),
+            {
+                "id",
+                "operativoId",
+                "animalId",
+                "rutSolicitante",
+                "estado",
+                "fechaCreacion",
+            }
+        )
+        self.assertEqual(
+            representacion["fechaCreacion"],
+            "2026-11-24T15:00:00Z"
+        )
+
+    def test_salida_invalida_se_rechaza(self):
+        documento = {
+            "_id": "inscripcion-1",
+            "operativoId": "operativo-1",
+            "animalId": "animal-1",
+            "rutSolicitante": "12345678-9",
+            "estado": "solicitada",
+            "fechaCreacion": "no-es-una-fecha",
+        }
+
+        with self.assertRaises(ErrorSalidaInscripcion):
+            InscripcionSerializer.representar(documento)
 
     def test_modelo_genera_documento_minimo_y_fecha_utc(self):
         documento = Inscripcion(
@@ -98,6 +142,44 @@ class InscripcionApiTests(SimpleTestCase):
         self.assertEqual(
             json.loads(respuesta.content)["error"]["codigo"],
             "TOKEN_REQUERIDO"
+        )
+
+    def test_post_rechaza_tipo_de_contenido_incorrecto(self):
+        request = RequestFactory().post(
+            "/api/operativos/inscripciones",
+            data="{}",
+            content_type="text/plain",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={"rut": "12345678-9", "perfil": "vecino"},
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 415)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "TIPO_CONTENIDO_INVALIDO"
+        )
+
+    def test_post_rechaza_constantes_json_no_estandar(self):
+        request = RequestFactory().post(
+            "/api/operativos/inscripciones",
+            data='{"operativoId":"op-1","animalId":NaN}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={"rut": "12345678-9", "perfil": "vecino"},
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "JSON_INVALIDO"
         )
 
 
