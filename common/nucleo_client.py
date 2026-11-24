@@ -5,7 +5,10 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
-NUCLEO_COMUN_URL = os.getenv("NUCLEO_COMUN_URL")
+NUCLEO_COMUN_URL = (
+    os.getenv("NUCLEO_BASE_URL")
+    or os.getenv("NUCLEO_COMUN_URL")
+)
 
 
 def obtener_sedes(page=1, limit=20):
