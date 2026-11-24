@@ -192,3 +192,120 @@ def registrar_atencion(
         ) from error
 
     return documento_atencion
+
+def cerrar_operativo(operativo_id: str, usuario: dict, perfil: str) -> dict:
+    """Registra las inasistencias pendientes y cierra el operativo."""
+
+    if perfil != "veterinario":
+        raise ErrorAtenciones(
+            "PERFIL_NO_AUTORIZADO",
+            "Solo un veterinario puede cerrar un operativo.",
+            403
+        )
+
+    object_id = _validar_id(operativo_id, "operativo")
+
+    operativos = _coleccion("operativos")
+    inscripciones = _coleccion("inscripciones")
+    atenciones = _coleccion("atenciones")
+
+    operativo = operativos.find_one({"_id": object_id})
+
+    if operativo is None:
+        raise ErrorAtenciones(
+            "OPERATIVO_NO_ENCONTRADO",
+            "No existe el operativo indicado.",
+            404
+        )
+
+    if operativo.get("cerrado", False):
+        raise ErrorAtenciones(
+            "OPERATIVO_CERRADO",
+            "El operativo ya se encuentra cerrado.",
+            409
+        )
+
+    pendientes = list(inscripciones.find({
+        "operativoId": operativo_id,
+        "estado": "confirmada"
+    }))
+
+    registradas = 0
+
+    for inscripcion in pendientes:
+
+        cambio = inscripciones.update_one(
+            {
+                "_id": inscripcion["_id"],
+                "estado": "confirmada"
+            },
+            {
+                "$set": {
+                    "estado": "no asistió"
+                }
+            }
+        )
+
+        if cambio.modified_count == 0:
+            continue
+
+        documento = {
+            "inscripcionId": str(inscripcion["_id"]),
+            "operativoId": operativo_id,
+            "animalId": inscripcion["animalId"],
+            "rutSolicitante": inscripcion.get("rutSolicitante"),
+            "tipoOperativo": operativo.get("tipoOperativo"),
+            "estado": "no asistió",
+            "fechaAtencion": datetime.now(timezone.utc),
+            "veterinarioRut": usuario.get("rut")
+        }
+
+        try:
+            atenciones.insert_one(documento)
+            registradas += 1
+
+        except PyMongoError:
+            inscripciones.update_one(
+                {
+                    "_id": inscripcion["_id"],
+                    "estado": "no asistió"
+                },
+                {
+                    "$set": {
+                        "estado": "confirmada"
+                    }
+                }
+            )
+
+            raise ErrorAtenciones(
+                "ERROR_REGISTRO_INASISTENCIA",
+                "No fue posible registrar una inasistencia.",
+                500
+            )
+
+    resultado_cierre = operativos.update_one(
+        {
+            "_id": object_id,
+            "cerrado": {"$ne": True}
+        },
+        {
+            "$set": {
+                "cerrado": True,
+                "fechaCierre": datetime.now(timezone.utc),
+                "veterinarioCierre": usuario.get("rut")
+            }
+        }
+    )
+
+    if resultado_cierre.modified_count == 0:
+        raise ErrorAtenciones(
+            "ERROR_CIERRE_OPERATIVO",
+            "No fue posible completar el cierre del operativo.",
+            409
+        )
+
+    return {
+        "operativoId": operativo_id,
+        "inasistenciasRegistradas": registradas,
+        "cerrado": True
+    }
