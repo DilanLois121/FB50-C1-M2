@@ -6,7 +6,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from inscripciones.auth import requiere_perfiles
-from .services import ErrorAtenciones, registrar_atencion
+from .services import ErrorAtenciones, registrar_atencion, cerrar_operativo
 
 
 @require_POST
@@ -62,6 +62,35 @@ def api_registrar_atencion(request, inscripcion_id):
                 }
             },
             status=201
+        )
+
+    except ErrorAtenciones as error:
+        return JsonResponse(
+            {
+                "error": {
+                    "codigo": error.codigo,
+                    "mensaje": error.mensaje
+                }
+            },
+            status=error.estado_http
+        )
+
+@require_POST
+@requiere_perfiles("veterinario")
+def api_cerrar_operativo(request, operativo_id):
+    try:
+        resultado = cerrar_operativo(
+            operativo_id=operativo_id,
+            usuario=request.usuario,
+            perfil=request.perfil
+        )
+
+        return JsonResponse(
+            {
+                "mensaje": "Operativo cerrado correctamente.",
+                "datos": resultado
+            },
+            status=200
         )
 
     except ErrorAtenciones as error:
