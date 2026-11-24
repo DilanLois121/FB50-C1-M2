@@ -1,9 +1,10 @@
 import json
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
+from requests import Timeout
 
 from .auth import requiere_perfiles
 from .models import Inscripcion
@@ -14,6 +15,8 @@ from .serializers import (
 )
 from .services import (
     ErrorInscripciones,
+    _consultar_animal,
+    _consultar_json,
     _obtener_animal,
     _validar_prohibicion_tenencia,
 )
@@ -326,6 +329,117 @@ class AutenticacionInscripcionTests(SimpleTestCase):
 
 
 class InscripcionServiceTests(SimpleTestCase):
+    @patch("inscripciones.services.requests.get")
+    def test_cliente_http_envia_bearer_y_timeout(self, get):
+        respuesta = Mock(status_code=200)
+        respuesta.json.return_value = {"id": "animal-1"}
+        get.return_value = respuesta
+
+        datos = _consultar_json("https://m1.test/recurso", "token-prueba")
+
+        self.assertEqual(datos, {"id": "animal-1"})
+        get.assert_called_once_with(
+            "https://m1.test/recurso",
+            headers={"Authorization": "Bearer token-prueba"},
+            timeout=10,
+        )
+
+    @patch("inscripciones.services.requests.get")
+    def test_respuesta_http_404_se_representa_como_no_encontrado(self, get):
+        get.return_value = Mock(status_code=404)
+
+        self.assertIsNone(_consultar_json("https://m1.test/recurso", "token"))
+
+    @patch("inscripciones.services.requests.get")
+    def test_error_http_5xx_se_expone_como_servicio_no_disponible(self, get):
+        get.return_value = Mock(status_code=503)
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            _consultar_json("https://m1.test/recurso", "token")
+
+        self.assertEqual(contexto.exception.estado_http, 503)
+        self.assertEqual(
+            contexto.exception.codigo,
+            "SERVICIO_EXTERNO_NO_DISPONIBLE"
+        )
+
+    @patch("inscripciones.services.requests.get", side_effect=Timeout)
+    def test_timeout_externo_se_expone_como_servicio_no_disponible(self, _get):
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            _consultar_json("https://m1.test/recurso", "token")
+
+        self.assertEqual(contexto.exception.estado_http, 503)
+
+    @patch("inscripciones.services.requests.get")
+    def test_error_http_no_404_del_servicio_se_expone_como_502(self, get):
+        get.return_value = Mock(status_code=403)
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            _consultar_json("https://m1.test/recurso", "token")
+
+        self.assertEqual(contexto.exception.estado_http, 502)
+        self.assertEqual(
+            contexto.exception.codigo,
+            "RESPUESTA_EXTERNA_INVALIDA"
+        )
+
+    @patch("inscripciones.services.requests.get")
+    def test_json_invalido_o_no_objeto_se_rechaza(self, get):
+        respuesta = Mock(status_code=200)
+        respuesta.json.side_effect = ValueError("JSON inválido")
+        get.return_value = respuesta
+
+        with self.assertRaises(ErrorInscripciones) as json_invalido:
+            _consultar_json("https://m1.test/recurso", "token")
+        self.assertEqual(json_invalido.exception.estado_http, 502)
+
+        respuesta.json.side_effect = None
+        respuesta.json.return_value = ["no", "es", "un", "objeto"]
+        with self.assertRaises(ErrorInscripciones) as formato_invalido:
+            _consultar_json("https://m1.test/recurso", "token")
+        self.assertEqual(formato_invalido.exception.estado_http, 502)
+
+    @patch.dict("os.environ", {"M1_BASE_URL": " https://m1.test/ "})
+    @patch("inscripciones.services.requests.get")
+    def test_consulta_animal_codifica_id_y_acepta_envoltura_datos(self, get):
+        respuesta = Mock(status_code=200)
+        respuesta.json.return_value = {
+            "datos": {
+                "estado": "registrado",
+                "especieId": "canino",
+            }
+        }
+        get.return_value = respuesta
+
+        animal = _consultar_animal("animal/uno", "token-prueba")
+
+        self.assertEqual(animal["estado"], "registrado")
+        self.assertEqual(animal["especieId"], "canino")
+        get.assert_called_once_with(
+            "https://m1.test/api/registro/animales/animal%2Funo",
+            headers={"Authorization": "Bearer token-prueba"},
+            timeout=10,
+        )
+
+    @patch(
+        "inscripciones.services._consultar_json",
+        return_value={"especieId": "canino"},
+    )
+    @patch("inscripciones.services._base_url", return_value="https://m1.test")
+    def test_estado_ausente_en_animal_es_respuesta_malformada(
+        self,
+        _base_url,
+        _consulta,
+    ):
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            _obtener_animal("animal-1", "token")
+
+        self.assertEqual(contexto.exception.estado_http, 502)
+        self.assertEqual(
+            contexto.exception.codigo,
+            "RESPUESTA_ANIMAL_INCOMPLETA"
+        )
+
     @patch("inscripciones.services._consultar_json", return_value=None)
     @patch("inscripciones.services._base_url", return_value="https://m1.test")
     def test_animal_inexistente_responde_como_404(self, _consulta, _base_url):
@@ -359,3 +473,34 @@ class InscripcionServiceTests(SimpleTestCase):
             _validar_prohibicion_tenencia("12345678-9", "token")
 
         self.assertEqual(contexto.exception.estado_http, 403)
+
+    @patch(
+        "inscripciones.services._consultar_json",
+        return_value={"prohibicionTenencia": False},
+    )
+    @patch("inscripciones.services._base_url", return_value="https://nucleo.test")
+    def test_usuario_sin_prohibicion_puede_continuar(
+        self,
+        _base_url,
+        _consulta,
+    ):
+        _validar_prohibicion_tenencia("12345678-9", "token")
+
+    @patch(
+        "inscripciones.services._consultar_json",
+        return_value={"prohibicionTenencia": "false"},
+    )
+    @patch("inscripciones.services._base_url", return_value="https://nucleo.test")
+    def test_prohibicion_de_tenencia_debe_ser_booleano(
+        self,
+        _base_url,
+        _consulta,
+    ):
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            _validar_prohibicion_tenencia("12345678-9", "token")
+
+        self.assertEqual(contexto.exception.estado_http, 502)
+        self.assertEqual(
+            contexto.exception.codigo,
+            "RESPUESTA_USUARIO_INCOMPLETA"
+        )

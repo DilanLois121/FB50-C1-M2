@@ -52,13 +52,13 @@ def _base_url(variable_nueva: str, variable_anterior: str | None = None) -> str:
     base_url = os.getenv(variable_nueva)
     if not base_url and variable_anterior:
         base_url = os.getenv(variable_anterior)
-    if not base_url:
+    if not isinstance(base_url, str) or not base_url.strip():
         raise ErrorInscripciones(
             "SERVICIO_NO_CONFIGURADO",
             f"No está configurada la variable {variable_nueva}.",
             503
         )
-    return base_url.rstrip("/")
+    return base_url.strip().rstrip("/")
 
 
 def _consultar_json(url: str, token: str):
@@ -124,24 +124,34 @@ def _consultar_animal(animal_id: str, token: str) -> dict:
             404
         )
 
-    if not isinstance(animal.get("especieId"), str) or not animal["especieId"]:
+    especie_id = animal.get("especieId")
+    if not isinstance(especie_id, str) or not especie_id.strip():
         raise ErrorInscripciones(
             "RESPUESTA_ANIMAL_INCOMPLETA",
             "La respuesta del registro no contiene una especie válida.",
             502
         )
+    animal["especieId"] = especie_id.strip()
     return animal
 
 
 def _obtener_animal(animal_id: str, token: str) -> dict:
     animal = _consultar_animal(animal_id, token)
     estado = animal.get("estado")
-    if not isinstance(estado, str) or estado not in {"registrado", "con_microchip"}:
+    if not isinstance(estado, str) or not estado.strip():
+        raise ErrorInscripciones(
+            "RESPUESTA_ANIMAL_INCOMPLETA",
+            "La respuesta del registro no contiene un estado válido.",
+            502
+        )
+    estado = estado.strip()
+    if estado not in {"registrado", "con_microchip"}:
         raise ErrorInscripciones(
             "ANIMAL_NO_ELEGIBLE",
             "El animal debe estar registrado o tener microchip, y no estar fallecido.",
             409
         )
+    animal["estado"] = estado
     return animal
 
 
