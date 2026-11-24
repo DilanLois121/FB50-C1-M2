@@ -2,8 +2,10 @@ import json
 from datetime import datetime
 from unittest.mock import patch
 
+from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
 
+from .auth import requiere_perfiles
 from .models import Inscripcion
 from .serializers import (
     ErrorSalidaInscripcion,
@@ -180,6 +182,146 @@ class InscripcionApiTests(SimpleTestCase):
         self.assertEqual(
             json.loads(respuesta.content)["error"]["codigo"],
             "JSON_INVALIDO"
+        )
+
+
+class AutenticacionInscripcionTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @staticmethod
+    @requiere_perfiles("funcionario")
+    def vista_protegida(request):
+        return JsonResponse({
+            "perfil": request.perfil,
+            "rut": request.usuario["rut"],
+            "token": request.token_bearer,
+        })
+
+    def test_sin_token_responde_401_y_no_consulta_nucleo(self):
+        request = self.factory.get("/protegido")
+        with patch("inscripciones.auth.validar_sesion_nucleo") as validar:
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 401)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "TOKEN_REQUERIDO"
+        )
+        validar.assert_not_called()
+
+    def test_formato_bearer_invalido_responde_401(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Basic token-prueba",
+        )
+        respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_token_rechazado_por_nucleo_responde_401(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Bearer token-caducado",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value=None,
+        ):
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 401)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "TOKEN_INVALIDO"
+        )
+
+    def test_error_de_conectividad_con_nucleo_responde_503(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            side_effect=RuntimeError("fallo de conexión"),
+        ):
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 503)
+
+    def test_respuesta_json_invalida_de_nucleo_responde_502(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            side_effect=ValueError("respuesta no válida"),
+        ):
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 502)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "RESPUESTA_NUCLEO_INVALIDA"
+        )
+
+    def test_respuesta_incompleta_de_nucleo_responde_502(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={"rut": "12345678-9"},
+        ):
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 502)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "RESPUESTA_NUCLEO_INVALIDA"
+        )
+
+    def test_perfil_no_autorizado_responde_403_y_no_ejecuta_vista(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={
+                "rut": "12345678-9",
+                "perfil": "vecino",
+            },
+        ):
+            respuesta = self.vista_protegida(request)
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_perfil_valido_se_normaliza_y_llega_a_la_vista(self):
+        request = self.factory.get(
+            "/protegido",
+            HTTP_AUTHORIZATION="bEaReR token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={
+                "rut": " 12345678-9 ",
+                "perfil": " Funcionario ",
+            },
+        ) as validar:
+            respuesta = self.vista_protegida(request)
+
+        validar.assert_called_once_with("token-prueba")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(
+            json.loads(respuesta.content),
+            {
+                "perfil": "funcionario",
+                "rut": "12345678-9",
+                "token": "token-prueba",
+            }
         )
 
 
