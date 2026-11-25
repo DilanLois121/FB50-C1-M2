@@ -3,13 +3,14 @@
 import json
 
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from inscripciones.auth import requiere_perfiles
 
 from .services import ErrorAtenciones
 from .cuidados_services import (
     agregar_nota_complementaria,
+    obtener_cuidado_por_inscripcion,
     registrar_cuidado,
 )
 
@@ -126,4 +127,32 @@ def api_agregar_nota_cuidado(request, cuidado_id):
             "datos": nota
         },
         status=201
+    )
+
+
+@require_GET
+@requiere_perfiles("veterinario", "funcionario")
+def api_obtener_cuidado(request, inscripcion_id):
+    try:
+        cuidado = obtener_cuidado_por_inscripcion(
+            inscripcion_id,
+            request.perfil
+        )
+    except ErrorAtenciones as error:
+        return JsonResponse(
+            {
+                "error": {
+                    "codigo": error.codigo,
+                    "mensaje": error.mensaje
+                }
+            },
+            status=error.estado_http
+        )
+
+    return JsonResponse(
+        {
+            "mensaje": "Cuidado obtenido.",
+            "datos": cuidado
+        },
+        status=200
     )

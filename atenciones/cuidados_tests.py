@@ -8,7 +8,11 @@ from bson import ObjectId
 from django.test import RequestFactory, SimpleTestCase
 
 from .services import ErrorAtenciones
-from .cuidados_views import api_agregar_nota_cuidado, api_registrar_cuidado
+from .cuidados_views import (
+    api_agregar_nota_cuidado,
+    api_obtener_cuidado,
+    api_registrar_cuidado,
+)
 
 
 class ApiRegistrarCuidadoTests(SimpleTestCase):
@@ -251,3 +255,94 @@ class ApiAgregarNotaCuidadoTests(SimpleTestCase):
                     self.cuidado_id
                 )
                 self.assertEqual(respuesta.status_code, 405)
+
+
+class ApiObtenerCuidadoTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.inscripcion_id = str(ObjectId())
+
+    def crear_request(self):
+        return self.factory.get(
+            f"/api/operativos/cuidados/inscripcion/{self.inscripcion_id}",
+            HTTP_AUTHORIZATION="Bearer token-prueba"
+        )
+
+    def mock_cuidado(self):
+        return {
+            "_id": ObjectId(),
+            "inscripcion_id": ObjectId(self.inscripcion_id),
+            "veterinario_rut": "12345678-9",
+            "indicaciones": "Reposo",
+            "medicamentos": ["Analgesico"],
+            "detalle_quirurgico": "Detalle confidencial",
+            "notas_complementarias": [],
+        }
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "funcionario"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_funcionario_no_recibe_detalle_quirurgico(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        mock_db["cuidados"].find_one.return_value = self.mock_cuidado()
+
+        respuesta = api_obtener_cuidado(
+            self.crear_request(),
+            self.inscripcion_id
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        datos = json.loads(respuesta.content)["datos"]
+        self.assertNotIn("detalle_quirurgico", datos)
+        self.assertEqual(datos["inscripcion_id"], self.inscripcion_id)
+        self.assertIsInstance(datos["_id"], str)
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "veterinario"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_veterinario_recibe_detalle_quirurgico(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        mock_db["cuidados"].find_one.return_value = self.mock_cuidado()
+
+        respuesta = api_obtener_cuidado(
+            self.crear_request(),
+            self.inscripcion_id
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        datos = json.loads(respuesta.content)["datos"]
+        self.assertEqual(datos["detalle_quirurgico"], "Detalle confidencial")
+        self.assertEqual(datos["inscripcion_id"], self.inscripcion_id)
+        self.assertIsInstance(datos["_id"], str)
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "vecino"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_vecino_no_puede_consultar_cuidado(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        respuesta = api_obtener_cuidado(
+            self.crear_request(),
+            self.inscripcion_id
+        )
+
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "PERFIL_NO_AUTORIZADO"
+        )
+        mock_db["cuidados"].find_one.assert_not_called()

@@ -9,22 +9,27 @@ with patch('pymongo.MongoClient', MagicMock()):
     django.setup()
 
     from atenciones.tests import RegistroCuidadoTests
-    from atenciones.cuidados_tests import ApiRegistrarCuidadoTests, ApiAgregarNotaCuidadoTests
+    from atenciones.cuidados_tests import (
+        ApiRegistrarCuidadoTests,
+        ApiAgregarNotaCuidadoTests,
+        ApiObtenerCuidadoTests,
+    )
 
     loader = unittest.TestLoader()
     suite = unittest.TestSuite([
         loader.loadTestsFromTestCase(RegistroCuidadoTests),
         loader.loadTestsFromTestCase(ApiRegistrarCuidadoTests),
         loader.loadTestsFromTestCase(ApiAgregarNotaCuidadoTests),
+        loader.loadTestsFromTestCase(ApiObtenerCuidadoTests),
     ])
 
-    print("\n" + "="*65)
-    print("EJECUTANDO PRUEBAS DE HU-05 (TAREA 2: INMUTABILIDAD Y NOTAS)")
-    print("="*65 + "\n")
+    print("\n" + "="*68)
+    print("EJECUTANDO PRUEBAS DE HU-05 (PRIVACIDAD Y DETALLE QUIRÚRGICO)")
+    print("="*68 + "\n")
     resultado = unittest.TextTestRunner(verbosity=2).run(suite)
-    print("\n" + "="*65)
+    print("\n" + "="*68)
     if resultado.wasSuccessful():
         print("RESULTADO: TODAS LAS PRUEBAS APROBADAS (OK)")
     else:
         print("RESULTADO: HUBO FALLOS EN LAS PRUEBAS")
-    print("="*65 + "\n")
+    print("="*68 + "\n")

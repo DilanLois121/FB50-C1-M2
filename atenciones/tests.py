@@ -15,6 +15,7 @@ from atenciones.services import (
 from atenciones.cuidados_services import registrar_cuidado
 from atenciones.cuidados_tests import (
     ApiAgregarNotaCuidadoTests,
+    ApiObtenerCuidadoTests,
     ApiRegistrarCuidadoTests,
 )
 

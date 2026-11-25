@@ -6,6 +6,7 @@ from .views import (
 )
 from .cuidados_views import (
     api_agregar_nota_cuidado,
+    api_obtener_cuidado,
     api_registrar_cuidado,
 )
 
@@ -30,5 +31,10 @@ urlpatterns = [
         "cuidados/<str:cuidado_id>/notas",
         api_agregar_nota_cuidado,
         name="api_agregar_nota_cuidado"
+    ),
+    path(
+        "cuidados/inscripcion/<str:inscripcion_id>",
+        api_obtener_cuidado,
+        name="api_obtener_cuidado"
     ),
 ]
