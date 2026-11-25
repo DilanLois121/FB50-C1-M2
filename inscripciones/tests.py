@@ -143,7 +143,7 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(1, 5, "12345678-9")
+        listar.assert_called_once_with(1, 5, "12345678-9", None)
 
     def test_listado_comunitario_ignora_rut_enviado_por_cliente(self):
         request = RequestFactory().get(
@@ -166,7 +166,83 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(2, 20, "98765432-1")
+        listar.assert_called_once_with(2, 20, "98765432-1", None)
+
+    def test_listado_pendientes_aplica_estado_y_privacidad(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones?estado=solicitada&page=2&limit=5",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "12345678-9",
+                    "perfil": "vecino",
+                },
+            ),
+            patch(
+                "inscripciones.views.listar_inscripciones",
+                return_value=(0, []),
+            ) as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 200)
+        listar.assert_called_once_with(
+            2,
+            5,
+            "12345678-9",
+            "solicitada",
+        )
+
+    def test_funcionario_consulta_pendientes_sin_filtro_por_rut(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones?estado=solicitada",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "12345678-9",
+                    "perfil": "funcionario",
+                },
+            ),
+            patch(
+                "inscripciones.views.listar_inscripciones",
+                return_value=(0, []),
+            ) as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 200)
+        listar.assert_called_once_with(
+            1,
+            20,
+            None,
+            "solicitada",
+        )
+
+    def test_estado_filtro_invalido_responde_400(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones?estado=desconocido",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with patch(
+            "inscripciones.auth.validar_sesion_nucleo",
+            return_value={
+                "rut": "12345678-9",
+                "perfil": "funcionario",
+            },
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "ESTADO_FILTRO_INVALIDO",
+        )
 
     def test_listado_funcionario_no_se_filtra_por_rut_de_consulta(self):
         request = RequestFactory().get(
@@ -189,7 +265,7 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(1, 20, None)
+        listar.assert_called_once_with(1, 20, None, None)
 
     def test_paginacion_invalida_no_consulta_inscripciones(self):
         for query in ("page=0", "page=-1", "page=abc", "limit=0", "limit=101"):
@@ -439,6 +515,37 @@ class InscripcionServiceTests(SimpleTestCase):
         ])
         cursor.skip.assert_called_once_with(20)
         cursor.limit.assert_called_once_with(10)
+
+    @patch("inscripciones.services._coleccion")
+    def test_listado_pendientes_aplica_estado_y_rut_al_conteo_y_consulta(
+        self,
+        coleccion_mock,
+    ):
+        inscripciones = MagicMock()
+        cursor = MagicMock()
+        cursor.sort.return_value = cursor
+        cursor.skip.return_value = cursor
+        cursor.limit.return_value = cursor
+        cursor.__iter__.return_value = iter([])
+        inscripciones.find.return_value = cursor
+        inscripciones.count_documents.return_value = 0
+        coleccion_mock.return_value = inscripciones
+
+        total, documentos = listar_inscripciones(
+            page=1,
+            limit=20,
+            rut_solicitante="12345678-9",
+            estado="solicitada",
+        )
+
+        filtro = {
+            "rutSolicitante": "12345678-9",
+            "estado": "solicitada",
+        }
+        self.assertEqual(total, 0)
+        self.assertEqual(documentos, [])
+        inscripciones.count_documents.assert_called_once_with(filtro)
+        inscripciones.find.assert_called_once_with(filtro)
 
     def preparar_creacion(self, tipo_operativo="esterilizacion", disponibles=3):
         operativo_id = ObjectId()

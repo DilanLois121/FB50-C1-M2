@@ -23,7 +23,12 @@ class InscripcionSerializer:
 
     CAMPOS_CREACION = {"operativoId", "animalId"}
     ESTADOS_EDITABLES = {"confirmada", "cancelada"}
-    ESTADOS_SALIDA = {"solicitada", "confirmada", "cancelada"}
+    ESTADOS_FILTRO = {
+        "solicitada",
+        "confirmada",
+        "cancelada",
+    }
+    ESTADOS_SALIDA = ESTADOS_FILTRO | {"atendida", "no asistió"}
     CAMPOS_SALIDA = {
         "operativoId",
         "animalId",
@@ -82,6 +87,18 @@ class InscripcionSerializer:
                 "El estado debe ser confirmada o cancelada."
             )
 
+        return estado
+
+    @classmethod
+    def validar_filtro_estado(cls, estado: str | None) -> str | None:
+        """Valida el estado opcional usado para consultar pendientes u otros estados."""
+        if estado is None:
+            return None
+        if not isinstance(estado, str) or estado not in cls.ESTADOS_FILTRO:
+            raise ErrorValidacionInscripcion(
+                "ESTADO_FILTRO_INVALIDO",
+                "El estado de filtro debe ser solicitada, confirmada o cancelada."
+            )
         return estado
 
     @classmethod

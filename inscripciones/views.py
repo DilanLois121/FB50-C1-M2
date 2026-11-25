@@ -97,11 +97,20 @@ def api_inscripciones(request):
         try:
             page = int(request.GET.get("page", "1"))
             limit = int(request.GET.get("limit", "20"))
+            estado = InscripcionSerializer.validar_filtro_estado(
+                request.GET.get("estado")
+            )
         except (TypeError, ValueError):
             return _respuesta_error(
                 "PAGINACION_INVALIDA",
                 "page y limit deben ser números enteros.",
                 400
+            )
+        except ErrorValidacionInscripcion as error:
+            return _respuesta_error(
+                error.codigo,
+                error.mensaje,
+                error.estado_http
             )
 
         if page < 1 or limit < 1 or limit > 100:
@@ -117,7 +126,12 @@ def api_inscripciones(request):
             else None
         )
         try:
-            total, documentos = listar_inscripciones(page, limit, rut)
+            total, documentos = listar_inscripciones(
+                page,
+                limit,
+                rut,
+                estado,
+            )
         except (PyMongoError, RuntimeError):
             return _respuesta_error(
                 "ERROR_BASE_DATOS",

@@ -352,10 +352,17 @@ def crear_inscripcion(
     return documento
 
 
-def listar_inscripciones(page: int, limit: int, rut_solicitante: str | None = None):
+def listar_inscripciones(
+    page: int,
+    limit: int,
+    rut_solicitante: str | None = None,
+    estado: str | None = None,
+):
     consulta = {}
     if rut_solicitante is not None:
         consulta["rutSolicitante"] = rut_solicitante
+    if estado is not None:
+        consulta["estado"] = estado
 
     inscripciones = _coleccion("inscripciones")
     total = inscripciones.count_documents(consulta)
