@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 from bson import ObjectId
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
+from django.urls import reverse
 from pymongo.errors import PyMongoError
 from requests import Timeout
 
@@ -26,7 +27,51 @@ from .services import (
     cambiar_estado_inscripcion,
     crear_inscripcion,
 )
-from .views import api_inscripciones
+from .views import api_inscripciones, pagina_mis_inscripciones
+
+
+class InscripcionWebPageTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_vecino_y_comunitario_reciben_la_pagina_con_api_y_token(self):
+        for perfil in ("vecino", "comunitario"):
+            with self.subTest(perfil=perfil):
+                request = self.factory.get(reverse("mis_inscripciones"))
+                request.session = {
+                    "token_nucleo": "token-prueba",
+                    "perfil_usuario": perfil,
+                }
+
+                respuesta = pagina_mis_inscripciones(request)
+                contenido = respuesta.content.decode()
+
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertIn("/api/operativos/inscripciones", contenido)
+                self.assertIn('"token-prueba"', contenido)
+                self.assertIn('name="animalId"', contenido)
+                self.assertIn("Authorization: `Bearer ${token}`", contenido)
+                self.assertNotIn("rutSolicitante=", contenido)
+
+    def test_sin_sesion_redirige_al_login(self):
+        request = self.factory.get(reverse("mis_inscripciones"))
+        request.session = {}
+
+        respuesta = pagina_mis_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(respuesta.url, reverse("iniciar_sesion"))
+
+    def test_perfil_funcionario_no_accede_a_la_pagina_vecinal(self):
+        request = self.factory.get(reverse("mis_inscripciones"))
+        request.session = {
+            "token_nucleo": "token-prueba",
+            "perfil_usuario": "funcionario",
+        }
+
+        respuesta = pagina_mis_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 403)
 
 
 class InscripcionSerializerTests(SimpleTestCase):

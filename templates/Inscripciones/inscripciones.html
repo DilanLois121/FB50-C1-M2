@@ -1,33 +1,532 @@
-<!doctype html>
-<html lang="en" data-bs-theme="light">
-    <head>
-        <title>Title</title>
-        <!-- Required meta tags -->
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mis inscripciones</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+            color: #20302b;
+            background: #f3f6f4;
+        }
 
-        <!-- Bootstrap CSS v5.3.8 -->
-        <link
-            href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
-            rel="stylesheet"
-            integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
-            crossorigin="anonymous"
-        />
-    </head>
+        * {
+            box-sizing: border-box;
+        }
 
-    <body>
-        <header>
-            <!-- place navbar here -->
-        </header>
-        <main></main>
-        <footer>
-            <!-- place footer here -->
-        </footer>
-        <!-- Bootstrap JavaScript Bundle (includes Popper) -->
-        <script
-            src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
-            integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
-            crossorigin="anonymous"
-        ></script>
-    </body>
+        body {
+            margin: 0;
+        }
+
+        header {
+            background: #185c45;
+            color: #fff;
+        }
+
+        .header-content,
+        main {
+            width: min(100% - 2rem, 1100px);
+            margin: 0 auto;
+        }
+
+        .header-content {
+            min-height: 76px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .header-content strong {
+            font-size: 1.15rem;
+        }
+
+        main {
+            padding: 2rem 0 3rem;
+        }
+
+        h1 {
+            margin: 0 0 .4rem;
+            font-size: clamp(1.7rem, 4vw, 2.2rem);
+        }
+
+        .intro {
+            margin: 0 0 1.5rem;
+            color: #52635c;
+        }
+
+        .panel {
+            padding: 1.25rem;
+            background: #fff;
+            border: 1px solid #dce5df;
+            border-radius: .7rem;
+            box-shadow: 0 2px 8px #173a2d0d;
+        }
+
+        .filter-form {
+            display: flex;
+            align-items: end;
+            flex-wrap: wrap;
+            gap: .75rem;
+        }
+
+        .field {
+            flex: 1 1 260px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: .35rem;
+            font-weight: 700;
+        }
+
+        input {
+            width: 100%;
+            min-height: 42px;
+            padding: .55rem .7rem;
+            border: 1px solid #aebdb4;
+            border-radius: .35rem;
+            font: inherit;
+        }
+
+        button,
+        .button-link {
+            min-height: 40px;
+            padding: .55rem .9rem;
+            border: 0;
+            border-radius: .35rem;
+            background: #185c45;
+            color: #fff;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:hover,
+        .button-link:hover {
+            background: #104632;
+        }
+
+        button:focus-visible,
+        input:focus-visible,
+        a:focus-visible {
+            outline: 3px solid #f2bf4b;
+            outline-offset: 2px;
+        }
+
+        button:disabled {
+            background: #9aa9a1;
+            cursor: not-allowed;
+        }
+
+        .secondary-button {
+            background: #e7eee9;
+            color: #20302b;
+        }
+
+        .secondary-button:hover {
+            background: #d7e3db;
+        }
+
+        .results-heading,
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .results-heading {
+            margin: 1.4rem 0 .7rem;
+        }
+
+        #result-count {
+            color: #52635c;
+        }
+
+        #status-message {
+            margin: 1rem 0;
+            padding: .8rem 1rem;
+            border-radius: .4rem;
+            background: #edf3ef;
+        }
+
+        #status-message.error {
+            background: #fff0ef;
+            color: #8c241d;
+        }
+
+        #status-message[hidden],
+        #results[hidden] {
+            display: none;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+        }
+
+        th,
+        td {
+            padding: .8rem .7rem;
+            border-bottom: 1px solid #e1e8e3;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #edf3ef;
+            white-space: nowrap;
+        }
+
+        .status {
+            display: inline-block;
+            padding: .25rem .55rem;
+            border-radius: 999px;
+            background: #e7eee9;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status-confirmada,
+        .status-atendida {
+            background: #dff3e7;
+            color: #165c34;
+        }
+
+        .status-cancelada,
+        .status-no-asistio {
+            background: #fbe5e3;
+            color: #8c241d;
+        }
+
+        .pagination {
+            justify-content: center;
+            margin-top: 1rem;
+        }
+
+        #page-indicator {
+            min-width: 130px;
+            text-align: center;
+            color: #52635c;
+        }
+
+        @media (max-width: 600px) {
+            .header-content {
+                align-items: flex-start;
+                padding: 1rem 0;
+            }
+
+            .results-heading {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: .25rem;
+            }
+
+            .filter-form button {
+                flex: 1 1 130px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <strong>Operativos de esterilización y chipeo</strong>
+            <form method="post" action="{% url 'cerrar_sesion' %}">
+                {% csrf_token %}
+                <button class="secondary-button" type="submit">Cerrar sesión</button>
+            </form>
+        </div>
+    </header>
+
+    <main id="consultation" data-api-url="{{ api_url }}">
+        <h1>Mis inscripciones</h1>
+        <p class="intro">
+            Consulta tus solicitudes y filtra por el identificador de un animal.
+        </p>
+
+        <section class="panel" aria-label="Filtros de consulta">
+            <form id="filter-form" class="filter-form">
+                <div class="field">
+                    <label for="animal-id">Identificador del animal (opcional)</label>
+                    <input
+                        id="animal-id"
+                        name="animalId"
+                        type="text"
+                        maxlength="128"
+                        autocomplete="off"
+                        placeholder="Ej.: SIM-000006"
+                    >
+                </div>
+                <button type="submit">Consultar</button>
+                <button id="clear-filter" class="secondary-button" type="button">
+                    Limpiar filtro
+                </button>
+            </form>
+        </section>
+
+        <section aria-label="Resultados de inscripciones">
+            <div class="results-heading">
+                <h2>Resultados</h2>
+                <span id="result-count"></span>
+            </div>
+
+            <p id="status-message" role="status" aria-live="polite">
+                Cargando tus inscripciones...
+            </p>
+
+            <div id="results" class="panel" hidden>
+                <div id="table-wrap" class="table-wrap" hidden>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Inscripción</th>
+                                <th scope="col">Animal</th>
+                                <th scope="col">Operativo</th>
+                                <th scope="col">Estado</th>
+                                <th scope="col">Fecha de creación</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inscription-rows"></tbody>
+                    </table>
+                </div>
+
+                <nav class="pagination" aria-label="Paginación de inscripciones">
+                    <button id="previous-page" class="secondary-button" type="button">
+                        Página anterior
+                    </button>
+                    <span id="page-indicator">Página 1 de 0</span>
+                    <button id="next-page" class="secondary-button" type="button">
+                        Página siguiente
+                    </button>
+                </nav>
+            </div>
+        </section>
+    </main>
+
+    {{ token_nucleo|json_script:"nucleo-token" }}
+    <script>
+        (() => {
+            const page = document.getElementById("consultation");
+            const apiUrl = page.dataset.apiUrl;
+            const token = JSON.parse(
+                document.getElementById("nucleo-token").textContent
+            );
+            const filterForm = document.getElementById("filter-form");
+            const animalInput = document.getElementById("animal-id");
+            const clearFilter = document.getElementById("clear-filter");
+            const statusMessage = document.getElementById("status-message");
+            const results = document.getElementById("results");
+            const tableWrap = document.getElementById("table-wrap");
+            const rows = document.getElementById("inscription-rows");
+            const resultCount = document.getElementById("result-count");
+            const pageIndicator = document.getElementById("page-indicator");
+            const previousPage = document.getElementById("previous-page");
+            const nextPage = document.getElementById("next-page");
+            const pageSize = 20;
+            let currentPage = 1;
+            let totalPages = 0;
+            let animalIdFilter = "";
+            let loading = false;
+
+            const stateClasses = {
+                confirmada: "status-confirmada",
+                atendida: "status-atendida",
+                cancelada: "status-cancelada",
+                "no asistió": "status-no-asistio"
+            };
+
+            function updatePagination() {
+                previousPage.disabled = loading || currentPage <= 1;
+                nextPage.disabled = loading || totalPages === 0 || currentPage >= totalPages;
+            }
+
+            function setStatus(message, isError = false, loginLink = false) {
+                statusMessage.replaceChildren(document.createTextNode(message));
+                if (loginLink) {
+                    statusMessage.append(" ");
+                    const link = document.createElement("a");
+                    link.href = "/login/";
+                    link.textContent = "Iniciar sesión";
+                    statusMessage.append(link, ".");
+                }
+                statusMessage.classList.toggle("error", isError);
+                statusMessage.hidden = false;
+            }
+
+            function formatDate(value) {
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) {
+                    return value || "—";
+                }
+                return date.toLocaleString("es-CL", {
+                    dateStyle: "medium",
+                    timeStyle: "short"
+                });
+            }
+
+            function addCell(row, value) {
+                const cell = document.createElement("td");
+                cell.textContent = value || "—";
+                row.append(cell);
+                return cell;
+            }
+
+            function showRows(inscriptions) {
+                const fragment = document.createDocumentFragment();
+                for (const inscription of inscriptions) {
+                    const row = document.createElement("tr");
+                    addCell(row, inscription.id);
+                    addCell(row, inscription.animalId);
+                    addCell(row, inscription.operativoId);
+
+                    const stateCell = document.createElement("td");
+                    const state = document.createElement("span");
+                    state.className = `status ${stateClasses[inscription.estado] || ""}`;
+                    state.textContent = inscription.estado || "Sin estado";
+                    stateCell.append(state);
+                    row.append(stateCell);
+
+                    addCell(row, formatDate(inscription.fechaCreacion));
+                    fragment.append(row);
+                }
+                rows.replaceChildren(fragment);
+            }
+
+            function errorMessage(status, payload) {
+                if (status === 401) {
+                    return {
+                        message: "Tu sesión no es válida o ha vencido.",
+                        loginLink: true
+                    };
+                }
+                if (status === 403) {
+                    return {
+                        message: "Tu perfil no tiene permiso para consultar estos datos."
+                    };
+                }
+                if (status === 404) {
+                    return { message: "No se encontró el recurso solicitado." };
+                }
+                if (status === 400) {
+                    return {
+                        message: payload?.error?.mensaje
+                            || "La consulta contiene parámetros inválidos."
+                    };
+                }
+                return {
+                    message: payload?.error?.mensaje
+                        || "No fue posible consultar las inscripciones. Intenta nuevamente."
+                };
+            }
+
+            async function loadPage(pageNumber) {
+                loading = true;
+                updatePagination();
+                results.hidden = true;
+                resultCount.textContent = "";
+                setStatus("Cargando tus inscripciones...");
+
+                const parameters = new URLSearchParams({
+                    page: String(pageNumber),
+                    limit: String(pageSize)
+                });
+                if (animalIdFilter) {
+                    parameters.set("animalId", animalIdFilter);
+                }
+
+                try {
+                    const response = await fetch(`${apiUrl}?${parameters}`, {
+                        headers: {
+                            Accept: "application/json",
+                            Authorization: `Bearer ${token}`
+                        }
+                    });
+                    let payload;
+                    try {
+                        payload = await response.json();
+                    } catch {
+                        payload = null;
+                    }
+
+                    if (!response.ok) {
+                        const error = errorMessage(response.status, payload);
+                        setStatus(error.message, true, error.loginLink);
+                        return;
+                    }
+                    if (
+                        !payload
+                        || !Array.isArray(payload.datos)
+                        || !Number.isInteger(payload.page)
+                        || !Number.isInteger(payload.totalPaginas)
+                    ) {
+                        setStatus("El servidor devolvió una respuesta inesperada.", true);
+                        return;
+                    }
+
+                    currentPage = payload.page;
+                    totalPages = payload.totalPaginas;
+                    pageIndicator.textContent =
+                        `Página ${payload.page} de ${payload.totalPaginas}`;
+                    resultCount.textContent =
+                        `${payload.total} inscripción(es) encontrada(s)`;
+                    showRows(payload.datos);
+                    if (payload.datos.length === 0) {
+                        setStatus("No se encontraron inscripciones con estos filtros.");
+                    } else {
+                        statusMessage.hidden = true;
+                    }
+                    tableWrap.hidden = payload.datos.length === 0;
+                    results.hidden = false;
+                } catch {
+                    setStatus(
+                        "No fue posible conectar con el servicio. Intenta nuevamente.",
+                        true
+                    );
+                } finally {
+                    loading = false;
+                    updatePagination();
+                }
+            }
+
+            filterForm.addEventListener("submit", (event) => {
+                event.preventDefault();
+                animalIdFilter = animalInput.value.trim();
+                currentPage = 1;
+                loadPage(currentPage);
+            });
+
+            clearFilter.addEventListener("click", () => {
+                animalInput.value = "";
+                animalIdFilter = "";
+                currentPage = 1;
+                loadPage(currentPage);
+            });
+
+            previousPage.addEventListener("click", () => {
+                if (!loading && currentPage > 1) {
+                    loadPage(currentPage - 1);
+                }
+            });
+
+            nextPage.addEventListener("click", () => {
+                if (!loading && currentPage < totalPages) {
+                    loadPage(currentPage + 1);
+                }
+            });
+
+            updatePagination();
+            loadPage(currentPage);
+        })();
+    </script>
+</body>
 </html>

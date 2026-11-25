@@ -37,19 +37,39 @@ def iniciar_sesion(request):
                     if usuario is None:
                         messages.error(request, "No fue posible validar la sesión.")
 
-                    elif usuario["perfil"] not in ("funcionario", "jefatura"):
+                    elif not isinstance(usuario, dict) or (
+                        not isinstance(usuario.get("rut"), str)
+                        or not isinstance(usuario.get("perfil"), str)
+                    ):
                         messages.error(
                             request,
-                            "No tiene permisos para acceder a esta sección."
+                            "No fue posible validar la sesión."
                         )
 
                     else:
-                        request.session.cycle_key()
-                        request.session["token_nucleo"] = token
-                        request.session["rut_usuario"] = usuario["rut"]
-                        request.session["perfil_usuario"] = usuario["perfil"]
+                        rut_usuario = usuario["rut"].strip()
+                        perfil = usuario["perfil"].strip().lower()
+                        perfiles_permitidos = {
+                            "funcionario",
+                            "jefatura",
+                            "vecino",
+                            "comunitario",
+                        }
 
-                        return redirect("crear_operativo")
+                        if not rut_usuario or perfil not in perfiles_permitidos:
+                            messages.error(
+                                request,
+                                "No tiene permisos para acceder a esta sección."
+                            )
+                        else:
+                            request.session.cycle_key()
+                            request.session["token_nucleo"] = token
+                            request.session["rut_usuario"] = rut_usuario
+                            request.session["perfil_usuario"] = perfil
+
+                            if perfil in {"vecino", "comunitario"}:
+                                return redirect("mis_inscripciones")
+                            return redirect("crear_operativo")
 
             except (RuntimeError, ValueError):
                 messages.error(

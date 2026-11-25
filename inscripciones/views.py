@@ -2,8 +2,11 @@
 
 import json
 
-from django.http import JsonResponse
+from django.http import HttpResponseForbidden, JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
 from pymongo.errors import PyMongoError
 
 from .auth import requiere_perfiles
@@ -21,6 +24,28 @@ from .services import (
 
 
 PERFILES_INSCRIPCIONES = ("funcionario", "vecino", "comunitario")
+PERFILES_CONSULTA_WEB = {"vecino", "comunitario"}
+
+
+@require_GET
+def pagina_mis_inscripciones(request):
+    token = request.session.get("token_nucleo")
+    if not token:
+        return redirect("iniciar_sesion")
+
+    if request.session.get("perfil_usuario") not in PERFILES_CONSULTA_WEB:
+        return HttpResponseForbidden(
+            "Solo vecinos y comunitarios pueden acceder a esta página."
+        )
+
+    return render(
+        request,
+        "Inscripciones/inscripciones.html",
+        {
+            "token_nucleo": token,
+            "api_url": reverse("api_inscripciones"),
+        },
+    )
 
 
 def _respuesta_error(codigo: str, mensaje: str, estado: int) -> JsonResponse:
