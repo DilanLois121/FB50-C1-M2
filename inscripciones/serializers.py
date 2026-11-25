@@ -102,6 +102,13 @@ class InscripcionSerializer:
         return estado
 
     @classmethod
+    def validar_filtro_animal_id(cls, animal_id: str | None) -> str | None:
+        """Valida el identificador opcional de animal usado en consultas."""
+        if animal_id is None:
+            return None
+        return cls._validar_texto(animal_id, "animalId")
+
+    @classmethod
     def representar(cls, documento: object) -> dict[str, str]:
         """Serializa solo datos permitidos y normaliza la fecha a UTC."""
         if not isinstance(documento, Mapping):

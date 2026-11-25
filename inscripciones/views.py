@@ -100,6 +100,9 @@ def api_inscripciones(request):
             estado = InscripcionSerializer.validar_filtro_estado(
                 request.GET.get("estado")
             )
+            animal_id = InscripcionSerializer.validar_filtro_animal_id(
+                request.GET.get("animalId")
+            )
         except (TypeError, ValueError):
             return _respuesta_error(
                 "PAGINACION_INVALIDA",
@@ -131,7 +134,7 @@ def api_inscripciones(request):
                 limit,
                 rut,
                 estado,
-                request.GET.get("animalId"),
+                animal_id,
             )
         except (PyMongoError, RuntimeError):
             return _respuesta_error(

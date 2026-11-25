@@ -200,9 +200,18 @@ class InscripcionApiTests(SimpleTestCase):
     def test_listado_vecinal_combina_animal_estado_y_rut_de_sesion(self):
         request = RequestFactory().get(
             "/api/operativos/inscripciones"
-            "?animalId=SIM-000006&estado=solicitada&page=1&limit=20",
+            "?animalId=SIM-000006&estado=solicitada&page=1&limit=20"
+            "&rutSolicitante=98765432-1",
             HTTP_AUTHORIZATION="Bearer token-prueba",
         )
+        documento = {
+            "_id": ObjectId("65a000000000000000000001"),
+            "operativoId": "operativo-1",
+            "animalId": "SIM-000006",
+            "rutSolicitante": "12345678-9",
+            "estado": "solicitada",
+            "fechaCreacion": "2026-11-24T12:00:00Z",
+        }
         with (
             patch(
                 "inscripciones.auth.validar_sesion_nucleo",
@@ -213,7 +222,7 @@ class InscripcionApiTests(SimpleTestCase):
             ),
             patch(
                 "inscripciones.views.listar_inscripciones",
-                return_value=(1, []),
+                return_value=(1, [documento]),
             ) as listar,
         ):
             respuesta = api_inscripciones(request)
@@ -226,7 +235,14 @@ class InscripcionApiTests(SimpleTestCase):
                 "limit": 20,
                 "total": 1,
                 "totalPaginas": 1,
-                "datos": [],
+                "datos": [{
+                    "id": "65a000000000000000000001",
+                    "operativoId": "operativo-1",
+                    "animalId": "SIM-000006",
+                    "rutSolicitante": "12345678-9",
+                    "estado": "solicitada",
+                    "fechaCreacion": "2026-11-24T12:00:00Z",
+                }],
             },
         )
         listar.assert_called_once_with(
@@ -236,6 +252,40 @@ class InscripcionApiTests(SimpleTestCase):
             "solicitada",
             "SIM-000006",
         )
+
+    def test_cambiar_animal_id_no_elude_el_filtro_por_rut_de_sesion(self):
+        for perfil, rut in (
+            ("vecino", "12345678-9"),
+            ("comunitario", "98765432-1"),
+        ):
+            with self.subTest(perfil=perfil):
+                request = RequestFactory().get(
+                    "/api/operativos/inscripciones"
+                    "?animalId=SIM-AJENO&rutSolicitante=11111111-1",
+                    HTTP_AUTHORIZATION="Bearer token-prueba",
+                )
+                with (
+                    patch(
+                        "inscripciones.auth.validar_sesion_nucleo",
+                        return_value={"rut": rut, "perfil": perfil},
+                    ),
+                    patch(
+                        "inscripciones.views.listar_inscripciones",
+                        return_value=(0, []),
+                    ) as listar,
+                ):
+                    respuesta = api_inscripciones(request)
+
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(json.loads(respuesta.content)["total"], 0)
+                self.assertEqual(json.loads(respuesta.content)["datos"], [])
+                listar.assert_called_once_with(
+                    1,
+                    20,
+                    rut,
+                    None,
+                    "SIM-AJENO",
+                )
 
     def test_funcionario_consulta_pendientes_sin_filtro_por_rut(self):
         request = RequestFactory().get(
@@ -285,6 +335,61 @@ class InscripcionApiTests(SimpleTestCase):
             json.loads(respuesta.content)["error"]["codigo"],
             "ESTADO_FILTRO_INVALIDO",
         )
+
+    def test_animal_id_invalido_responde_400_sin_consultar(self):
+        for animal_id in ("", "%20%20", "x" * 129):
+            with self.subTest(animal_id=animal_id):
+                request = RequestFactory().get(
+                    "/api/operativos/inscripciones?animalId=" + animal_id,
+                    HTTP_AUTHORIZATION="Bearer token-prueba",
+                )
+                with (
+                    patch(
+                        "inscripciones.auth.validar_sesion_nucleo",
+                        return_value={
+                            "rut": "12345678-9",
+                            "perfil": "funcionario",
+                        },
+                    ),
+                    patch("inscripciones.views.listar_inscripciones") as listar,
+                ):
+                    respuesta = api_inscripciones(request)
+
+                self.assertEqual(respuesta.status_code, 400)
+                self.assertEqual(
+                    json.loads(respuesta.content)["error"]["codigo"],
+                    "CAMPO_INVALIDO",
+                )
+                listar.assert_not_called()
+
+    def test_perfil_no_autorizado_recibe_403_en_listado(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "12345678-9",
+                    "perfil": "admin",
+                },
+            ),
+            patch("inscripciones.views.listar_inscripciones") as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(
+            json.loads(respuesta.content),
+            {
+                "error": {
+                    "codigo": "PERFIL_NO_AUTORIZADO",
+                    "mensaje": "Su perfil no tiene permisos para este recurso.",
+                },
+            },
+        )
+        listar.assert_not_called()
 
     def test_listado_funcionario_no_se_filtra_por_rut_de_consulta(self):
         request = RequestFactory().get(
