@@ -1,10 +1,11 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 from bson import ObjectId
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
+from pymongo.errors import PyMongoError
 from requests import Timeout
 
 from .auth import requiere_perfiles
@@ -22,6 +23,7 @@ from .services import (
     listar_inscripciones,
     _obtener_animal,
     _validar_prohibicion_tenencia,
+    cambiar_estado_inscripcion,
     crear_inscripcion,
 )
 from .views import api_inscripciones
@@ -817,3 +819,285 @@ class InscripcionServiceTests(SimpleTestCase):
             contexto.exception.codigo,
             "RESPUESTA_USUARIO_INCOMPLETA"
         )
+
+
+class InscripcionTransicionTests(SimpleTestCase):
+    def preparar_transicion(self, estado="solicitada", horas_hasta_operativo=48):
+        inscripcion_id = ObjectId()
+        operativo_id = ObjectId()
+        documento = {
+            "_id": inscripcion_id,
+            "operativoId": str(operativo_id),
+            "animalId": "animal-1",
+            "rutSolicitante": "12345678-9",
+            "estado": estado,
+        }
+        operativo = {
+            "_id": operativo_id,
+            "fechaHora": datetime.now(timezone.utc)
+            + timedelta(hours=horas_hasta_operativo),
+        }
+
+        inscripciones = MagicMock()
+        inscripciones.find_one.return_value = documento.copy()
+        inscripciones.find_one_and_update.return_value = documento.copy()
+        inscripciones.update_one.return_value.matched_count = 1
+
+        operativos = MagicMock()
+        operativos.find_one.return_value = operativo
+        operativos.update_one.return_value.matched_count = 1
+
+        return {
+            "inscripciones": inscripciones,
+            "operativos": operativos,
+        }, str(inscripcion_id), documento, operativo
+
+    def cambiar(
+        self,
+        colecciones,
+        inscripcion_id,
+        nuevo_estado,
+        perfil,
+        rut="12345678-9",
+    ):
+        with (
+            patch(
+                "inscripciones.services._coleccion",
+                side_effect=lambda nombre: colecciones[nombre],
+            ),
+            patch(
+                "inscripciones.services._obtener_animal",
+                return_value={
+                    "estado": "registrado",
+                    "especieId": "canino",
+                },
+            ),
+            patch("inscripciones.services._consultar_animal") as consultar_animal,
+        ):
+            consultar_animal.return_value = {"especieId": "canino"}
+            return cambiar_estado_inscripcion(
+                inscripcion_id=inscripcion_id,
+                nuevo_estado=nuevo_estado,
+                usuario={"rut": rut},
+                perfil=perfil,
+                token="token-prueba",
+            )
+
+    def test_funcionario_confirma_solicitada_y_descuenta_un_cupo(self):
+        colecciones, inscripcion_id, _, operativo = self.preparar_transicion()
+
+        resultado = self.cambiar(
+            colecciones,
+            inscripcion_id,
+            "confirmada",
+            "funcionario",
+        )
+
+        self.assertEqual(resultado["estado"], "confirmada")
+        operativos = colecciones["operativos"]
+        operativos.update_one.assert_called_once_with(
+            {
+                "_id": operativo["_id"],
+                "cuposPorEspecie": {
+                    "$elemMatch": {
+                        "especieId": "canino",
+                        "disponibles": {"$gt": 0},
+                    }
+                },
+            },
+            {"$inc": {"cuposPorEspecie.$.disponibles": -1}}
+        )
+        colecciones["inscripciones"].update_one.assert_called_once_with(
+            {"_id": ObjectId(inscripcion_id), "estado": "solicitada"},
+            {"$set": {"estado": "confirmada"}}
+        )
+
+    def test_otro_perfil_no_puede_confirmar(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion()
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "confirmada",
+                "vecino",
+            )
+
+        self.assertEqual(contexto.exception.estado_http, 403)
+        colecciones["operativos"].update_one.assert_not_called()
+
+    def test_no_confirma_si_no_hay_cupo_y_no_cambia_estado(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion()
+        colecciones["operativos"].update_one.return_value.matched_count = 0
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "confirmada",
+                "funcionario",
+            )
+
+        self.assertEqual(contexto.exception.codigo, "CUPOS_AGOTADOS")
+        colecciones["inscripciones"].update_one.assert_not_called()
+
+    def test_confirma_solo_desde_estado_solicitada(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion(
+            estado="cancelada"
+        )
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "confirmada",
+                "funcionario",
+            )
+
+        self.assertEqual(contexto.exception.codigo, "TRANSICION_INVALIDA")
+        colecciones["operativos"].update_one.assert_not_called()
+
+    def test_fallo_al_actualizar_estado_restituye_cupo_reservado(self):
+        colecciones, inscripcion_id, _, operativo = self.preparar_transicion()
+        colecciones["inscripciones"].update_one.side_effect = PyMongoError(
+            "Error de escritura simulado"
+        )
+
+        with self.assertRaises(PyMongoError):
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "confirmada",
+                "funcionario",
+            )
+
+        self.assertEqual(colecciones["operativos"].update_one.call_count, 2)
+        colecciones["operativos"].update_one.assert_called_with(
+            {
+                "_id": operativo["_id"],
+                "cuposPorEspecie.especieId": "canino",
+            },
+            {"$inc": {"cuposPorEspecie.$.disponibles": 1}}
+        )
+
+    def test_vecino_cancela_solicitada_propia_sin_restituir_cupo(self):
+        colecciones, inscripcion_id, documento, _ = self.preparar_transicion()
+
+        resultado = self.cambiar(
+            colecciones,
+            inscripcion_id,
+            "cancelada",
+            "vecino",
+        )
+
+        self.assertEqual(resultado["estado"], "cancelada")
+        colecciones["inscripciones"].find_one_and_update.assert_called_once()
+        filtro = colecciones["inscripciones"].find_one_and_update.call_args.args[0]
+        self.assertEqual(
+            filtro,
+            {
+                "_id": documento["_id"],
+                "estado": "solicitada",
+                "rutSolicitante": "12345678-9",
+            }
+        )
+        colecciones["operativos"].update_one.assert_not_called()
+
+    def test_vecino_no_puede_cancelar_inscripcion_ajena(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion()
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "cancelada",
+                "vecino",
+                rut="98765432-1",
+            )
+
+        self.assertEqual(contexto.exception.estado_http, 403)
+        colecciones["inscripciones"].find_one_and_update.assert_not_called()
+
+    def test_vecino_no_cancela_con_menos_de_24_horas(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion(
+            horas_hasta_operativo=23
+        )
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "cancelada",
+                "vecino",
+            )
+
+        self.assertEqual(
+            contexto.exception.codigo,
+            "PLAZO_CANCELACION_VENCIDO"
+        )
+        colecciones["inscripciones"].find_one_and_update.assert_not_called()
+
+    def test_cancelar_confirmada_restituye_cupo(self):
+        colecciones, inscripcion_id, documento, _ = self.preparar_transicion(
+            estado="confirmada",
+            horas_hasta_operativo=25,
+        )
+
+        resultado = self.cambiar(
+            colecciones,
+            inscripcion_id,
+            "cancelada",
+            "comunitario",
+        )
+
+        self.assertEqual(resultado["estado"], "cancelada")
+        self.assertEqual(
+            resultado["operativoId"],
+            documento["operativoId"]
+        )
+        colecciones["operativos"].update_one.assert_called_once_with(
+            {
+                "_id": ObjectId(documento["operativoId"]),
+                "cuposPorEspecie.especieId": "canino",
+            },
+            {"$inc": {"cuposPorEspecie.$.disponibles": 1}}
+        )
+
+    def test_fallo_al_restituir_cupo_revierte_estado_a_confirmada(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion(
+            estado="confirmada",
+            horas_hasta_operativo=25,
+        )
+        colecciones["operativos"].update_one.return_value.matched_count = 0
+
+        with self.assertRaises(RuntimeError):
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "cancelada",
+                "vecino",
+            )
+
+        colecciones["inscripciones"].update_one.assert_called_once_with(
+            {
+                "_id": ObjectId(inscripcion_id),
+                "estado": "cancelada",
+            },
+            {"$set": {"estado": "confirmada"}}
+        )
+
+    def test_no_permite_cancelar_inscripcion_ya_cancelada(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion(
+            estado="cancelada"
+        )
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                inscripcion_id,
+                "cancelada",
+                "funcionario",
+            )
+
+        self.assertEqual(contexto.exception.codigo, "TRANSICION_INVALIDA")
+        colecciones["inscripciones"].find_one_and_update.assert_not_called()

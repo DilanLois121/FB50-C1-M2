@@ -403,6 +403,24 @@ def _restituir_cupo(operativo_id: str, animal_id: str, token: str) -> None:
         raise RuntimeError("No se encontró el cupo que debe ser restituido.")
 
 
+def _restaurar_cupo_reservado(
+    operativos,
+    operativo_id: ObjectId,
+    especie_id: str
+) -> None:
+    resultado = operativos.update_one(
+        {
+            "_id": operativo_id,
+            "cuposPorEspecie.especieId": especie_id,
+        },
+        {"$inc": {"cuposPorEspecie.$.disponibles": 1}}
+    )
+    if resultado.matched_count == 0:
+        raise RuntimeError(
+            "No fue posible restaurar el cupo reservado del operativo."
+        )
+
+
 def cambiar_estado_inscripcion(
     inscripcion_id: str,
     nuevo_estado: str,
@@ -478,15 +496,24 @@ def cambiar_estado_inscripcion(
                 409
             )
 
-        cambio = inscripciones.update_one(
-            {"_id": object_id, "estado": "solicitada"},
-            {"$set": {"estado": "confirmada"}}
-        )
+        try:
+            cambio = inscripciones.update_one(
+                {"_id": object_id, "estado": "solicitada"},
+                {"$set": {"estado": "confirmada"}}
+            )
+        except PyMongoError:
+            _restaurar_cupo_reservado(
+                operativos,
+                operativo_id,
+                animal["especieId"]
+            )
+            raise
+
         if cambio.matched_count == 0:
-            operativos.update_one(
-                {"_id": operativo_id},
-                {"$inc": {"cuposPorEspecie.$[cupo].disponibles": 1}},
-                array_filters=[{"cupo.especieId": animal["especieId"]}]
+            _restaurar_cupo_reservado(
+                operativos,
+                operativo_id,
+                animal["especieId"]
             )
             raise ErrorInscripciones(
                 "TRANSICION_INVALIDA",
@@ -551,10 +578,15 @@ def cambiar_estado_inscripcion(
                 token
             )
         except (ErrorInscripciones, PyMongoError, RuntimeError):
-            inscripciones.update_one(
+            restauracion = inscripciones.update_one(
                 {"_id": object_id, "estado": "cancelada"},
                 {"$set": {"estado": "confirmada"}}
             )
+            if restauracion.matched_count == 0:
+                raise RuntimeError(
+                    "No fue posible revertir la cancelación tras fallar "
+                    "la restitución del cupo."
+                )
             raise
 
     cancelada["estado"] = "cancelada"
