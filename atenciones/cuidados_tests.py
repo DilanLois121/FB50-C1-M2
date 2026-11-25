@@ -1,13 +1,14 @@
 """Pruebas de la API de registro de cuidados."""
 
 import json
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from bson import ObjectId
 from django.test import RequestFactory, SimpleTestCase
 
 from .services import ErrorAtenciones
-from .cuidados_views import api_registrar_cuidado
+from .cuidados_views import api_agregar_nota_cuidado, api_registrar_cuidado
 
 
 class ApiRegistrarCuidadoTests(SimpleTestCase):
@@ -120,3 +121,133 @@ class ApiRegistrarCuidadoTests(SimpleTestCase):
                 "detalle_quirurgico": "Sin cirugía"
             }
         )
+
+
+class ApiAgregarNotaCuidadoTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cuidado_id = str(ObjectId())
+
+    def crear_request(self, method="post", nota="Control realizado"):
+        request_method = getattr(self.factory, method)
+        return request_method(
+            f"/api/operativos/cuidados/{self.cuidado_id}/notas",
+            data=json.dumps({"nota": nota}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer token-prueba"
+        )
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "veterinario"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_agrega_nota_y_responde_201_con_autor_y_fecha_utc(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        cuidado_id = ObjectId(self.cuidado_id)
+        mock_db["cuidados"].find_one.return_value = {"_id": cuidado_id}
+
+        respuesta = api_agregar_nota_cuidado(
+            self.crear_request(),
+            self.cuidado_id
+        )
+
+        self.assertEqual(respuesta.status_code, 201)
+        cuerpo = json.loads(respuesta.content)
+        self.assertEqual(
+            cuerpo["mensaje"],
+            "Nota complementaria agregada exitosamente."
+        )
+        nota = cuerpo["datos"]
+        self.assertEqual(nota["nota"], "Control realizado")
+        self.assertEqual(nota["autor_rut"], "12345678-9")
+        fecha = datetime.fromisoformat(nota["fecha"].replace("Z", "+00:00"))
+        self.assertEqual(fecha.utcoffset(), timedelta(0))
+        mock_db["cuidados"].update_one.assert_called_once_with(
+            {"_id": cuidado_id},
+            {"$push": {"notas_complementarias": nota}}
+        )
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "veterinario"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_cuidado_inexistente_responde_404(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        mock_db["cuidados"].find_one.return_value = None
+
+        respuesta = api_agregar_nota_cuidado(
+            self.crear_request(),
+            self.cuidado_id
+        )
+
+        self.assertEqual(respuesta.status_code, 404)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "CUIDADO_NO_ENCONTRADO"
+        )
+        mock_db["cuidados"].update_one.assert_not_called()
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "veterinario"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_nota_vacia_responde_400(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        mock_db["cuidados"].find_one.return_value = {
+            "_id": ObjectId(self.cuidado_id)
+        }
+
+        respuesta = api_agregar_nota_cuidado(
+            self.crear_request(nota="  "),
+            self.cuidado_id
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "NOTA_VACIA"
+        )
+        mock_db["cuidados"].update_one.assert_not_called()
+
+    @patch(
+        "inscripciones.auth.validar_sesion_nucleo",
+        return_value={"rut": "12345678-9", "perfil": "vecino"}
+    )
+    @patch("atenciones.cuidados_services.db")
+    def test_perfil_no_veterinario_responde_403(
+        self,
+        mock_db,
+        _mock_validar_sesion
+    ):
+        respuesta = api_agregar_nota_cuidado(
+            self.crear_request(),
+            self.cuidado_id
+        )
+
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(
+            json.loads(respuesta.content)["error"]["codigo"],
+            "PERFIL_NO_AUTORIZADO"
+        )
+        mock_db["cuidados"].find_one.assert_not_called()
+
+    def test_put_y_delete_no_son_permitidos(self):
+        for metodo in ("put", "delete"):
+            with self.subTest(metodo=metodo):
+                respuesta = api_agregar_nota_cuidado(
+                    self.crear_request(method=metodo),
+                    self.cuidado_id
+                )
+                self.assertEqual(respuesta.status_code, 405)

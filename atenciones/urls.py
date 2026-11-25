@@ -4,7 +4,10 @@ from .views import (
     api_registrar_atencion,
     api_cerrar_operativo
 )
-from .cuidados_views import api_registrar_cuidado
+from .cuidados_views import (
+    api_agregar_nota_cuidado,
+    api_registrar_cuidado,
+)
 
 
 urlpatterns = [
@@ -22,5 +25,10 @@ urlpatterns = [
         "cuidados/<str:inscripcion_id>",
         api_registrar_cuidado,
         name="api_registrar_cuidado"
+    ),
+    path(
+        "cuidados/<str:cuidado_id>/notas",
+        api_agregar_nota_cuidado,
+        name="api_agregar_nota_cuidado"
     ),
 ]

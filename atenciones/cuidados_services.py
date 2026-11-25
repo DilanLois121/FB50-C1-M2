@@ -1,6 +1,6 @@
 """Reglas de negocio y persistencia para los cuidados veterinarios."""
 
-# Responsable: Juan Álvarez.
+# Juan Alvarez
 
 from datetime import datetime, timezone
 
@@ -51,3 +51,38 @@ def registrar_cuidado(inscripcion_id, usuario, datos):
     resultado = db["cuidados"].insert_one(documento)
     documento["_id"] = resultado.inserted_id
     return documento
+
+
+def agregar_nota_complementaria(cuidado_id, usuario, texto_nota):
+    """Agrega una nota sin modificar los datos originales del cuidado."""
+    if db is None:
+        raise RuntimeError("La conexión con MongoDB no está configurada.")
+
+    cuidado_object_id = _validar_id(cuidado_id, "cuidado")
+    cuidados = db["cuidados"]
+
+    if cuidados.find_one({"_id": cuidado_object_id}, {"_id": 1}) is None:
+        raise ErrorAtenciones(
+            "CUIDADO_NO_ENCONTRADO",
+            "No existe el cuidado indicado.",
+            404
+        )
+
+    if not isinstance(texto_nota, str) or not texto_nota.strip():
+        raise ErrorAtenciones(
+            "NOTA_VACIA",
+            "La nota complementaria no puede estar vacía.",
+            400
+        )
+
+    nueva_nota = {
+        "nota": texto_nota,
+        "autor_rut": usuario["rut"],
+        "fecha": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    }
+
+    cuidados.update_one(
+        {"_id": cuidado_object_id},
+        {"$push": {"notas_complementarias": nueva_nota}}
+    )
+    return nueva_nota
