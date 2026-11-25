@@ -291,7 +291,21 @@ def crear_inscripcion(
         ),
         None
     )
-    if cupo is None or cupo.get("disponibles", 0) <= 0:
+    if cupo is None:
+        raise ErrorInscripciones(
+            "CUPOS_AGOTADOS",
+            "El operativo no tiene cupos disponibles para la especie del animal.",
+            409
+        )
+
+    disponibles = cupo.get("disponibles")
+    if isinstance(disponibles, bool) or not isinstance(disponibles, int):
+        raise ErrorInscripciones(
+            "CUPOS_INVALIDOS",
+            "El operativo tiene una cantidad de cupos inválida.",
+            500
+        )
+    if disponibles <= 0:
         raise ErrorInscripciones(
             "CUPOS_AGOTADOS",
             "El operativo no tiene cupos disponibles para la especie del animal.",

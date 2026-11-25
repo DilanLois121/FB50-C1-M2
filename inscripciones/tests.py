@@ -1,7 +1,8 @@
 import json
-from datetime import datetime
-from unittest.mock import Mock, patch
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, Mock, patch
 
+from bson import ObjectId
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
 from requests import Timeout
@@ -15,10 +16,12 @@ from .serializers import (
 )
 from .services import (
     ErrorInscripciones,
+    _cantidad_no_asistencias,
     _consultar_animal,
     _consultar_json,
     _obtener_animal,
     _validar_prohibicion_tenencia,
+    crear_inscripcion,
 )
 from .views import api_inscripciones
 
@@ -329,6 +332,210 @@ class AutenticacionInscripcionTests(SimpleTestCase):
 
 
 class InscripcionServiceTests(SimpleTestCase):
+    def preparar_creacion(self, tipo_operativo="esterilizacion", disponibles=3):
+        operativo_id = ObjectId()
+        operativos = MagicMock()
+        operativos.find_one.return_value = {
+            "_id": operativo_id,
+            "tipoOperativo": tipo_operativo,
+            "cuposPorEspecie": [{
+                "especieId": "canino",
+                "total": 3,
+                "disponibles": disponibles,
+            }],
+        }
+
+        inscripciones = MagicMock()
+        inscripciones.find_one.return_value = None
+        inscripciones.count_documents.return_value = 0
+        inscripciones.insert_one.return_value.inserted_id = ObjectId()
+
+        atenciones = MagicMock()
+        atenciones.count_documents.return_value = 0
+
+        return {
+            "operativos": operativos,
+            "inscripciones": inscripciones,
+            "atenciones": atenciones,
+        }, str(operativo_id)
+
+    def crear_con_dependencias(
+        self,
+        colecciones,
+        operativo_id,
+        perfil="vecino",
+        animal_esterilizado=False,
+        no_asistencias=0,
+    ):
+        with (
+            patch(
+                "inscripciones.services._coleccion",
+                side_effect=lambda nombre: colecciones[nombre],
+            ),
+            patch(
+                "inscripciones.services._obtener_animal",
+                return_value={
+                    "estado": "registrado",
+                    "especieId": "canino",
+                },
+            ),
+            patch("inscripciones.services._validar_prohibicion_tenencia"),
+            patch(
+                "inscripciones.services._animal_esterilizado",
+                return_value=animal_esterilizado,
+            ),
+            patch(
+                "inscripciones.services._cantidad_no_asistencias",
+                return_value=no_asistencias,
+            ),
+        ):
+            return crear_inscripcion(
+                operativo_id=operativo_id,
+                animal_id="animal-1",
+                rut_solicitante="12345678-9",
+                perfil=perfil,
+                token="token-prueba",
+            )
+
+    def test_creacion_persiste_inscripcion_solicitada_con_rut_de_sesion(self):
+        colecciones, operativo_id = self.preparar_creacion()
+
+        documento = self.crear_con_dependencias(colecciones, operativo_id)
+
+        colecciones["inscripciones"].insert_one.assert_called_once()
+        guardado = colecciones["inscripciones"].insert_one.call_args.args[0]
+        self.assertEqual(guardado["operativoId"], operativo_id)
+        self.assertEqual(guardado["animalId"], "animal-1")
+        self.assertEqual(guardado["rutSolicitante"], "12345678-9")
+        self.assertEqual(guardado["estado"], "solicitada")
+        self.assertIsInstance(documento["_id"], ObjectId)
+
+    def test_operativo_inexistente_detiene_la_creacion(self):
+        colecciones, operativo_id = self.preparar_creacion()
+        colecciones["operativos"].find_one.return_value = None
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(colecciones, operativo_id)
+
+        self.assertEqual(contexto.exception.estado_http, 404)
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_cupo_agotado_no_crea_inscripcion(self):
+        colecciones, operativo_id = self.preparar_creacion(disponibles=0)
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(colecciones, operativo_id)
+
+        self.assertEqual(contexto.exception.codigo, "CUPOS_AGOTADOS")
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_cupo_con_tipo_invalido_no_se_trata_como_disponible(self):
+        colecciones, operativo_id = self.preparar_creacion(disponibles=True)
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(colecciones, operativo_id)
+
+        self.assertEqual(contexto.exception.codigo, "CUPOS_INVALIDOS")
+        self.assertEqual(contexto.exception.estado_http, 500)
+
+    def test_rechaza_inscripcion_activa_duplicada_para_animal_y_operativo(self):
+        colecciones, operativo_id = self.preparar_creacion()
+        colecciones["inscripciones"].find_one.return_value = {"_id": ObjectId()}
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(colecciones, operativo_id)
+
+        self.assertEqual(contexto.exception.codigo, "INSCRIPCION_DUPLICADA")
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_rechaza_la_tercera_inscripcion_activa_del_rut(self):
+        colecciones, operativo_id = self.preparar_creacion()
+        colecciones["inscripciones"].count_documents.return_value = 2
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(colecciones, operativo_id)
+
+        self.assertEqual(contexto.exception.codigo, "LIMITE_INSCRIPCIONES")
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_dos_inasistencias_bloquean_a_vecino(self):
+        colecciones, operativo_id = self.preparar_creacion()
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(
+                colecciones,
+                operativo_id,
+                no_asistencias=2,
+            )
+
+        self.assertEqual(
+            contexto.exception.codigo,
+            "BLOQUEO_POR_INASISTENCIAS"
+        )
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_funcionario_no_se_bloquea_por_inasistencias(self):
+        colecciones, operativo_id = self.preparar_creacion()
+
+        self.crear_con_dependencias(
+            colecciones,
+            operativo_id,
+            perfil="funcionario",
+            no_asistencias=2,
+        )
+
+        colecciones["inscripciones"].insert_one.assert_called_once()
+
+    def test_esterilizacion_atendida_impide_nueva_inscripcion_de_esterilizacion(self):
+        colecciones, operativo_id = self.preparar_creacion()
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.crear_con_dependencias(
+                colecciones,
+                operativo_id,
+                animal_esterilizado=True,
+            )
+
+        self.assertEqual(contexto.exception.codigo, "ESTERILIZACION_PREVIA")
+        colecciones["inscripciones"].insert_one.assert_not_called()
+
+    def test_esterilizacion_previa_no_bloquea_un_operativo_de_chipeo(self):
+        colecciones, operativo_id = self.preparar_creacion(
+            tipo_operativo="chipeo"
+        )
+
+        self.crear_con_dependencias(
+            colecciones,
+            operativo_id,
+            animal_esterilizado=True,
+        )
+
+        colecciones["inscripciones"].insert_one.assert_called_once()
+
+    def test_conteo_de_inasistencias_usa_seis_meses_calendario(self):
+        ahora = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
+        atenciones = MagicMock()
+        atenciones.count_documents.return_value = 2
+
+        with (
+            patch("inscripciones.services._coleccion", return_value=atenciones),
+            patch("inscripciones.services.datetime") as fecha_mock,
+        ):
+            fecha_mock.now.return_value = ahora
+            resultado = _cantidad_no_asistencias("12345678-9")
+
+        self.assertEqual(resultado, 2)
+        consulta = atenciones.count_documents.call_args.args[0]
+        self.assertEqual(consulta["rutSolicitante"], "12345678-9")
+        self.assertEqual(
+            consulta["estado"],
+            {"$in": ["no asistió", "no_asistio", "no asistio"]}
+        )
+        self.assertEqual(
+            consulta["$or"][0]["fechaAtencion"]["$gte"],
+            datetime(2026, 2, 28, 12, 0, tzinfo=timezone.utc)
+        )
+
     @patch("inscripciones.services.requests.get")
     def test_cliente_http_envia_bearer_y_timeout(self, get):
         respuesta = Mock(status_code=200)
