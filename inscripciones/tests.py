@@ -1048,6 +1048,71 @@ class InscripcionTransicionTests(SimpleTestCase):
         self.assertEqual(contexto.exception.codigo, "CUPOS_AGOTADOS")
         colecciones["inscripciones"].update_one.assert_not_called()
 
+    def test_dos_confirmaciones_no_consumen_mas_que_el_ultimo_cupo(self):
+        colecciones, primera_id, _, operativo = self.preparar_transicion()
+        primera_reserva = MagicMock()
+        primera_reserva.matched_count = 1
+        segunda_reserva = MagicMock()
+        segunda_reserva.matched_count = 0
+        colecciones["operativos"].update_one.side_effect = [
+            primera_reserva,
+            segunda_reserva,
+        ]
+
+        primera = self.cambiar(
+            colecciones,
+            primera_id,
+            "confirmada",
+            "funcionario",
+        )
+
+        segunda_id = str(ObjectId())
+        segunda_documento = {
+            "_id": ObjectId(segunda_id),
+            "operativoId": str(operativo["_id"]),
+            "animalId": "animal-2",
+            "rutSolicitante": "98765432-1",
+            "estado": "solicitada",
+        }
+        colecciones["inscripciones"].find_one.return_value = segunda_documento
+
+        with self.assertRaises(ErrorInscripciones) as contexto:
+            self.cambiar(
+                colecciones,
+                segunda_id,
+                "confirmada",
+                "funcionario",
+            )
+
+        self.assertEqual(primera["estado"], "confirmada")
+        self.assertEqual(contexto.exception.codigo, "CUPOS_AGOTADOS")
+        self.assertEqual(colecciones["operativos"].update_one.call_count, 2)
+
+    def test_confirmacion_y_cancelacion_no_afectan_otra_especie(self):
+        colecciones, inscripcion_id, documento, operativo = (
+            self.preparar_transicion(estado="confirmada")
+        )
+
+        colecciones["operativos"].update_one.return_value.matched_count = 1
+        resultado = self.cambiar(
+            colecciones,
+            inscripcion_id,
+            "cancelada",
+            "funcionario",
+        )
+
+        self.assertEqual(resultado["estado"], "cancelada")
+        colecciones["operativos"].update_one.assert_called_once_with(
+            {
+                "_id": ObjectId(documento["operativoId"]),
+                "cuposPorEspecie.especieId": "canino",
+            },
+            {"$inc": {"cuposPorEspecie.$.disponibles": 1}}
+        )
+        llamada = colecciones["operativos"].update_one.call_args.args
+        self.assertNotIn("felino", str(llamada))
+        self.assertNotIn("felino", str(operativo))
+
     def test_confirma_solo_desde_estado_solicitada(self):
         colecciones, inscripcion_id, _, _ = self.preparar_transicion(
             estado="cancelada"
@@ -1143,6 +1208,23 @@ class InscripcionTransicionTests(SimpleTestCase):
             "PLAZO_CANCELACION_VENCIDO"
         )
         colecciones["inscripciones"].find_one_and_update.assert_not_called()
+
+    def test_funcionario_cancela_solicitada_sin_restriccion_de_24_horas(self):
+        colecciones, inscripcion_id, _, _ = self.preparar_transicion(
+            estado="solicitada",
+            horas_hasta_operativo=2,
+        )
+
+        resultado = self.cambiar(
+            colecciones,
+            inscripcion_id,
+            "cancelada",
+            "funcionario",
+        )
+
+        self.assertEqual(resultado["estado"], "cancelada")
+        colecciones["inscripciones"].find_one_and_update.assert_called_once()
+        colecciones["operativos"].update_one.assert_not_called()
 
     def test_cancelar_confirmada_restituye_cupo(self):
         colecciones, inscripcion_id, documento, _ = self.preparar_transicion(
