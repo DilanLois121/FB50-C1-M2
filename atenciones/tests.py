@@ -13,6 +13,7 @@ from atenciones.services import (
     cerrar_operativo,
 )
 from atenciones.cuidados_services import registrar_cuidado
+from atenciones.cuidados_tests import ApiRegistrarCuidadoTests
 
 
 class RegistroCuidadoTests(SimpleTestCase):
