@@ -50,6 +50,15 @@ def _id_operativo(valor: str) -> ObjectId:
 
 def _base_url(variable_nueva: str, variable_anterior: str | None = None) -> str:
     base_url = os.getenv(variable_nueva)
+    print(
+    "DEBUG M1:",
+    variable_nueva,
+    "Detectada:",
+    bool(base_url),
+    "Proceso:",
+    os.getpid()
+)
+
     if not base_url and variable_anterior:
         base_url = os.getenv(variable_anterior)
     if not isinstance(base_url, str) or not base_url.strip():

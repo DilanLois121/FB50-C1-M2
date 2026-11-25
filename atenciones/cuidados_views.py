@@ -1,7 +1,7 @@
 """Vistas API para el registro de cuidados veterinarios."""
 
 import json
-
+from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
@@ -14,7 +14,7 @@ from .cuidados_services import (
     registrar_cuidado,
 )
 
-
+@csrf_exempt
 @require_POST
 @requiere_perfiles("veterinario")
 def api_registrar_cuidado(request, inscripcion_id):
@@ -77,6 +77,7 @@ def api_registrar_cuidado(request, inscripcion_id):
     )
 
 
+@csrf_exempt
 @require_POST
 @requiere_perfiles("veterinario")
 def api_agregar_nota_cuidado(request, cuidado_id):
@@ -131,12 +132,18 @@ def api_agregar_nota_cuidado(request, cuidado_id):
 
 
 @require_GET
-@requiere_perfiles("veterinario", "funcionario")
+@requiere_perfiles(
+    "veterinario",
+    "funcionario",
+    "vecino",
+    "comunitario"
+)
 def api_obtener_cuidado(request, inscripcion_id):
     try:
         cuidado = obtener_cuidado_por_inscripcion(
             inscripcion_id,
-            request.perfil
+            request.perfil,
+            request.usuario
         )
     except ErrorAtenciones as error:
         return JsonResponse(

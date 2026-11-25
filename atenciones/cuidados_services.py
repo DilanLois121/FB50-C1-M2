@@ -88,12 +88,46 @@ def agregar_nota_complementaria(cuidado_id, usuario, texto_nota):
     return nueva_nota
 
 
-def obtener_cuidado_por_inscripcion(inscripcion_id, perfil_solicitante):
-    """Obtiene el cuidado asociado, ocultando detalles según el perfil."""
-    if db is None:
-        raise RuntimeError("La conexión con MongoDB no está configurada.")
+def obtener_cuidado_por_inscripcion(
+    inscripcion_id,
+    perfil_solicitante,
+    usuario=None
+):
+    """Obtiene los cuidados y valida el acceso según el perfil."""
 
-    inscripcion_object_id = _validar_id(inscripcion_id, "inscripcion")
+    if db is None:
+        raise RuntimeError(
+            "La conexión con MongoDB no está configurada."
+        )
+
+    inscripcion_object_id = _validar_id(
+        inscripcion_id,
+        "inscripcion"
+    )
+
+    if perfil_solicitante in {"vecino", "comunitario"}:
+
+        inscripcion = db["inscripciones"].find_one(
+            {"_id": inscripcion_object_id},
+            {"rutSolicitante": 1}
+        )
+
+        if inscripcion is None:
+            raise ErrorAtenciones(
+                "INSCRIPCION_NO_ENCONTRADA",
+                "No existe la inscripción indicada.",
+                404
+            )
+
+        rut_usuario = usuario.get("rut") if usuario else None
+
+        if inscripcion.get("rutSolicitante") != rut_usuario:
+            raise ErrorAtenciones(
+                "INSCRIPCION_AJENA",
+                "Solo puede consultar los cuidados de sus propias inscripciones.",
+                403
+            )
+
     cuidado = db["cuidados"].find_one({
         "inscripcion_id": inscripcion_object_id
     })
@@ -106,7 +140,11 @@ def obtener_cuidado_por_inscripcion(inscripcion_id, perfil_solicitante):
         )
 
     cuidado_formateado = dict(cuidado)
-    cuidado_formateado["_id"] = str(cuidado_formateado["_id"])
+
+    cuidado_formateado["_id"] = str(
+        cuidado_formateado["_id"]
+    )
+
     cuidado_formateado["inscripcion_id"] = str(
         cuidado_formateado["inscripcion_id"]
     )

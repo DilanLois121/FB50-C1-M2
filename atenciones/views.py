@@ -1,14 +1,14 @@
 """Vistas API para el registro de atenciones veterinarias."""
 
 import json
-
+from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from inscripciones.auth import requiere_perfiles
 from .services import ErrorAtenciones, registrar_atencion, cerrar_operativo
 
-
+@csrf_exempt
 @require_POST
 @requiere_perfiles("veterinario")
 def api_registrar_atencion(request, inscripcion_id):
@@ -75,6 +75,8 @@ def api_registrar_atencion(request, inscripcion_id):
             status=error.estado_http
         )
 
+
+@csrf_exempt
 @require_POST
 @requiere_perfiles("veterinario")
 def api_cerrar_operativo(request, operativo_id):
