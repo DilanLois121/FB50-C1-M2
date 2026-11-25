@@ -143,7 +143,7 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(1, 5, "12345678-9", None)
+        listar.assert_called_once_with(1, 5, "12345678-9", None, None)
 
     def test_listado_comunitario_ignora_rut_enviado_por_cliente(self):
         request = RequestFactory().get(
@@ -166,7 +166,7 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(2, 20, "98765432-1", None)
+        listar.assert_called_once_with(2, 20, "98765432-1", None, None)
 
     def test_listado_pendientes_aplica_estado_y_privacidad(self):
         request = RequestFactory().get(
@@ -194,6 +194,47 @@ class InscripcionApiTests(SimpleTestCase):
             5,
             "12345678-9",
             "solicitada",
+            None,
+        )
+
+    def test_listado_vecinal_combina_animal_estado_y_rut_de_sesion(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones"
+            "?animalId=SIM-000006&estado=solicitada&page=1&limit=20",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "12345678-9",
+                    "perfil": "vecino",
+                },
+            ),
+            patch(
+                "inscripciones.views.listar_inscripciones",
+                return_value=(1, []),
+            ) as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(
+            json.loads(respuesta.content),
+            {
+                "page": 1,
+                "limit": 20,
+                "total": 1,
+                "totalPaginas": 1,
+                "datos": [],
+            },
+        )
+        listar.assert_called_once_with(
+            1,
+            20,
+            "12345678-9",
+            "solicitada",
+            "SIM-000006",
         )
 
     def test_funcionario_consulta_pendientes_sin_filtro_por_rut(self):
@@ -222,6 +263,7 @@ class InscripcionApiTests(SimpleTestCase):
             20,
             None,
             "solicitada",
+            None,
         )
 
     def test_estado_filtro_invalido_responde_400(self):
@@ -265,7 +307,7 @@ class InscripcionApiTests(SimpleTestCase):
             respuesta = api_inscripciones(request)
 
         self.assertEqual(respuesta.status_code, 200)
-        listar.assert_called_once_with(1, 20, None, None)
+        listar.assert_called_once_with(1, 20, None, None, None)
 
     def test_paginacion_invalida_no_consulta_inscripciones(self):
         for query in ("page=0", "page=-1", "page=abc", "limit=0", "limit=101"):
@@ -546,6 +588,42 @@ class InscripcionServiceTests(SimpleTestCase):
         self.assertEqual(documentos, [])
         inscripciones.count_documents.assert_called_once_with(filtro)
         inscripciones.find.assert_called_once_with(filtro)
+
+    @patch("inscripciones.services._coleccion")
+    def test_listado_por_animal_combina_filtros_y_pagina_en_mongo(
+        self,
+        coleccion_mock,
+    ):
+        inscripciones = MagicMock()
+        cursor = MagicMock()
+        cursor.sort.return_value = cursor
+        cursor.skip.return_value = cursor
+        cursor.limit.return_value = cursor
+        documentos = [{"animalId": "SIM-000006"}]
+        cursor.__iter__.return_value = iter(documentos)
+        inscripciones.find.return_value = cursor
+        inscripciones.count_documents.return_value = 3
+        coleccion_mock.return_value = inscripciones
+
+        total, resultado = listar_inscripciones(
+            page=2,
+            limit=2,
+            rut_solicitante="12345678-9",
+            estado="solicitada",
+            animal_id="SIM-000006",
+        )
+
+        filtro = {
+            "rutSolicitante": "12345678-9",
+            "estado": "solicitada",
+            "animalId": "SIM-000006",
+        }
+        self.assertEqual(total, 3)
+        self.assertEqual(resultado, documentos)
+        inscripciones.count_documents.assert_called_once_with(filtro)
+        inscripciones.find.assert_called_once_with(filtro)
+        cursor.skip.assert_called_once_with(2)
+        cursor.limit.assert_called_once_with(2)
 
     def preparar_creacion(self, tipo_operativo="esterilizacion", disponibles=3):
         operativo_id = ObjectId()

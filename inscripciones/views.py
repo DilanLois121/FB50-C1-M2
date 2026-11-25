@@ -131,6 +131,7 @@ def api_inscripciones(request):
                 limit,
                 rut,
                 estado,
+                request.GET.get("animalId"),
             )
         except (PyMongoError, RuntimeError):
             return _respuesta_error(

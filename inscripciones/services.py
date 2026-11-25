@@ -366,12 +366,15 @@ def listar_inscripciones(
     limit: int,
     rut_solicitante: str | None = None,
     estado: str | None = None,
+    animal_id: str | None = None,
 ):
     consulta = {}
     if rut_solicitante is not None:
         consulta["rutSolicitante"] = rut_solicitante
     if estado is not None:
         consulta["estado"] = estado
+    if animal_id is not None:
+        consulta["animalId"] = animal_id
 
     inscripciones = _coleccion("inscripciones")
     total = inscripciones.count_documents(consulta)
