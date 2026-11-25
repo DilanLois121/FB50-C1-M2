@@ -19,6 +19,7 @@ from .services import (
     _cantidad_no_asistencias,
     _consultar_animal,
     _consultar_json,
+    listar_inscripciones,
     _obtener_animal,
     _validar_prohibicion_tenencia,
     crear_inscripcion,
@@ -141,6 +142,78 @@ class InscripcionApiTests(SimpleTestCase):
 
         self.assertEqual(respuesta.status_code, 200)
         listar.assert_called_once_with(1, 5, "12345678-9")
+
+    def test_listado_comunitario_ignora_rut_enviado_por_cliente(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones?rutSolicitante=otra-persona&page=2",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "98765432-1",
+                    "perfil": "comunitario",
+                },
+            ),
+            patch(
+                "inscripciones.views.listar_inscripciones",
+                return_value=(0, []),
+            ) as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 200)
+        listar.assert_called_once_with(2, 20, "98765432-1")
+
+    def test_listado_funcionario_no_se_filtra_por_rut_de_consulta(self):
+        request = RequestFactory().get(
+            "/api/operativos/inscripciones?rutSolicitante=otra-persona",
+            HTTP_AUTHORIZATION="Bearer token-prueba",
+        )
+        with (
+            patch(
+                "inscripciones.auth.validar_sesion_nucleo",
+                return_value={
+                    "rut": "12345678-9",
+                    "perfil": "funcionario",
+                },
+            ),
+            patch(
+                "inscripciones.views.listar_inscripciones",
+                return_value=(0, []),
+            ) as listar,
+        ):
+            respuesta = api_inscripciones(request)
+
+        self.assertEqual(respuesta.status_code, 200)
+        listar.assert_called_once_with(1, 20, None)
+
+    def test_paginacion_invalida_no_consulta_inscripciones(self):
+        for query in ("page=0", "page=-1", "page=abc", "limit=0", "limit=101"):
+            with self.subTest(query=query):
+                request = RequestFactory().get(
+                    f"/api/operativos/inscripciones?{query}",
+                    HTTP_AUTHORIZATION="Bearer token-prueba",
+                )
+                with (
+                    patch(
+                        "inscripciones.auth.validar_sesion_nucleo",
+                        return_value={
+                            "rut": "12345678-9",
+                            "perfil": "vecino",
+                        },
+                    ),
+                    patch("inscripciones.views.listar_inscripciones") as listar,
+                ):
+                    respuesta = api_inscripciones(request)
+
+                self.assertEqual(respuesta.status_code, 400)
+                self.assertEqual(
+                    json.loads(respuesta.content)["error"]["codigo"],
+                    "PAGINACION_INVALIDA"
+                )
+                listar.assert_not_called()
 
     def test_token_ausente_responde_401_con_formato_comun(self):
         request = RequestFactory().get("/api/operativos/inscripciones")
@@ -332,6 +405,39 @@ class AutenticacionInscripcionTests(SimpleTestCase):
 
 
 class InscripcionServiceTests(SimpleTestCase):
+    @patch("inscripciones.services._coleccion")
+    def test_listado_filtra_en_mongo_y_pagina_con_orden_determinista(
+        self,
+        coleccion_mock,
+    ):
+        inscripciones = MagicMock()
+        cursor = MagicMock()
+        cursor.sort.return_value = cursor
+        cursor.skip.return_value = cursor
+        cursor.limit.return_value = cursor
+        cursor.__iter__.return_value = iter([])
+        inscripciones.find.return_value = cursor
+        inscripciones.count_documents.return_value = 0
+        coleccion_mock.return_value = inscripciones
+
+        total, documentos = listar_inscripciones(
+            page=3,
+            limit=10,
+            rut_solicitante="12345678-9",
+        )
+
+        self.assertEqual(total, 0)
+        self.assertEqual(documentos, [])
+        filtro = {"rutSolicitante": "12345678-9"}
+        inscripciones.count_documents.assert_called_once_with(filtro)
+        inscripciones.find.assert_called_once_with(filtro)
+        cursor.sort.assert_called_once_with([
+            ("fechaCreacion", -1),
+            ("_id", -1),
+        ])
+        cursor.skip.assert_called_once_with(20)
+        cursor.limit.assert_called_once_with(10)
+
     def preparar_creacion(self, tipo_operativo="esterilizacion", disponibles=3):
         operativo_id = ObjectId()
         operativos = MagicMock()

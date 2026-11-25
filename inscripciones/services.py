@@ -361,7 +361,7 @@ def listar_inscripciones(page: int, limit: int, rut_solicitante: str | None = No
     total = inscripciones.count_documents(consulta)
     documentos = list(
         inscripciones.find(consulta)
-        .sort("fechaCreacion", -1)
+        .sort([("fechaCreacion", -1), ("_id", -1)])
         .skip((page - 1) * limit)
         .limit(limit)
     )
