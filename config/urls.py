@@ -12,4 +12,5 @@ urlpatterns = [
     path('api/operativos', api_views.crear_operativo_api, name='api_crear_operativo'),
     path('api/operativos/<str:id_operativo>', api_views.actualizar_operativo_api, name='api_actualizar_operativo'),
     path('api/operativos/', include('inscripciones.urls')),
+    path('api/operativos/', include('atenciones.urls')),
 ]
