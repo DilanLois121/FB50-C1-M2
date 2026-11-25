@@ -89,6 +89,7 @@ class RegistroAtencionTests(SimpleTestCase):
             "microchip": "123456789012345"
         }
 
+        # Simular las llamadas a las colecciones.
         mock_coleccion.side_effect = [
             inscripciones,
             operativos,
@@ -223,6 +224,82 @@ class RegistroAtencionTests(SimpleTestCase):
 
         # Comprobar que se intentó guardar la atención.
         atenciones.insert_one.assert_called_once()
+
+    @patch("atenciones.services._coleccion")
+    def test_registro_chipeo_exitoso_guarda_microchip(
+        self, mock_coleccion
+    ):
+        inscripcion_id = ObjectId()
+        operativo_id = ObjectId()
+
+        microchip = "123456789012345"
+
+        inscripcion = {
+            "_id": inscripcion_id,
+            "operativoId": str(operativo_id),
+            "animalId": "animal-123",
+            "rutSolicitante": "12345678-9",
+            "estado": "confirmada"
+        }
+
+        operativo = {
+            "_id": operativo_id,
+            "tipoOperativo": "chipeo"
+        }
+
+        inscripciones = MagicMock()
+        operativos = MagicMock()
+        atenciones = MagicMock()
+
+        inscripciones.find_one.return_value = inscripcion
+        operativos.find_one.return_value = operativo
+
+        resultado_actualizacion = MagicMock()
+        resultado_actualizacion.modified_count = 1
+        inscripciones.update_one.return_value = resultado_actualizacion
+
+        resultado_insercion = MagicMock()
+        resultado_insercion.inserted_id = ObjectId()
+        atenciones.insert_one.return_value = resultado_insercion
+
+        # Simular que el microchip no existe previamente.
+        atenciones.find_one.return_value = None
+
+        mock_coleccion.side_effect = lambda nombre: {
+            "inscripciones": inscripciones,
+            "operativos": operativos,
+            "atenciones": atenciones
+        }[nombre]
+
+        resultado = registrar_atencion(
+            inscripcion_id=str(inscripcion_id),
+            usuario={"rut": "12345678-9"},
+            perfil="veterinario",
+            microchip=microchip
+        )
+
+        # Verificar que se actualizó la inscripción.
+        inscripciones.update_one.assert_called_once()
+
+        # Verificar que se guardó la atención.
+        atenciones.insert_one.assert_called_once()
+
+        # Obtener el documento guardado simulado.
+        documento_guardado = atenciones.insert_one.call_args[0][0]
+
+        # Comprobar que el microchip quedó guardado.
+        self.assertEqual(
+            documento_guardado["microchip"],
+            microchip
+        )
+
+        # Comprobar que el registro corresponde a chipeo.
+        self.assertEqual(
+            documento_guardado["tipoOperativo"],
+            "chipeo"
+        )
+
+        self.assertIsNotNone(resultado)
 
 
 class CierreOperativoTests(SimpleTestCase):
