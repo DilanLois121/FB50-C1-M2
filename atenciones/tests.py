@@ -12,6 +12,87 @@ from atenciones.services import (
     registrar_atencion,
     cerrar_operativo,
 )
+from atenciones.cuidados_services import registrar_cuidado
+
+
+class RegistroCuidadoTests(SimpleTestCase):
+
+    @patch("atenciones.cuidados_services.db")
+    def test_inscripcion_inexistente_devuelve_error_404(self, mock_db):
+        inscripcion_id = ObjectId()
+        mock_db["inscripciones"].find_one.return_value = None
+
+        with self.assertRaises(ErrorAtenciones) as contexto:
+            registrar_cuidado(
+                str(inscripcion_id),
+                {"rut": "12345678-9"},
+                {}
+            )
+
+        self.assertEqual(
+            contexto.exception.codigo,
+            "INSCRIPCION_NO_ENCONTRADA"
+        )
+        self.assertEqual(contexto.exception.estado_http, 404)
+
+    @patch("atenciones.cuidados_services.db")
+    def test_inscripcion_no_atendida_devuelve_error_400(self, mock_db):
+        inscripcion_id = ObjectId()
+        mock_db["inscripciones"].find_one.return_value = {
+            "_id": inscripcion_id,
+            "estado": "confirmada"
+        }
+
+        with self.assertRaises(ErrorAtenciones) as contexto:
+            registrar_cuidado(
+                str(inscripcion_id),
+                {"rut": "12345678-9"},
+                {}
+            )
+
+        self.assertEqual(
+            contexto.exception.codigo,
+            "INSCRIPCION_NO_ATENDIDA"
+        )
+        self.assertEqual(contexto.exception.estado_http, 400)
+        mock_db["cuidados"].insert_one.assert_not_called()
+
+    @patch("atenciones.cuidados_services.db")
+    def test_registra_cuidado_para_inscripcion_atendida(self, mock_db):
+        inscripcion_id = ObjectId()
+        cuidado_id = ObjectId()
+        mock_db["inscripciones"].find_one.return_value = {
+            "_id": inscripcion_id,
+            "estado": "atendida"
+        }
+        mock_db["cuidados"].insert_one.return_value.inserted_id = cuidado_id
+        datos = {
+            "indicaciones": "Reposo",
+            "medicamentos": ["Analgesico"],
+            "detalle_quirurgico": "Sin cirugía"
+        }
+
+        resultado = registrar_cuidado(
+            str(inscripcion_id),
+            {"rut": "12345678-9"},
+            datos
+        )
+
+        mock_db["inscripciones"].find_one.assert_called_once_with(
+            {"_id": inscripcion_id}
+        )
+        documento = mock_db["cuidados"].insert_one.call_args.args[0]
+        self.assertEqual(documento["inscripcion_id"], inscripcion_id)
+        self.assertEqual(documento["veterinario_rut"], "12345678-9")
+        self.assertEqual(documento["indicaciones"], "Reposo")
+        self.assertEqual(documento["medicamentos"], ["Analgesico"])
+        self.assertEqual(documento["detalle_quirurgico"], "Sin cirugía")
+        self.assertEqual(documento["notas_complementarias"], [])
+        self.assertEqual(resultado["_id"], cuidado_id)
+        fecha_registro = datetime.fromisoformat(
+            documento["fecha_registro"].replace("Z", "+00:00")
+        )
+        self.assertEqual(fecha_registro.utcoffset(), timedelta(0))
 
 
 class ValidacionMicrochipTests(SimpleTestCase):
