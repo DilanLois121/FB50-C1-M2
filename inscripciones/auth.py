@@ -20,7 +20,8 @@ def requiere_perfiles(*perfiles_permitidos: str):
     def decorar(vista):
         @wraps(vista)
         def envolver(request, *args, **kwargs):
-            partes = request.headers.get("Authorization", "").split()
+            authorization = request.headers.get("Authorization", "")
+            partes = authorization.split()
             if (
                 len(partes) != 2
                 or partes[0].lower() != "bearer"
@@ -54,7 +55,20 @@ def requiere_perfiles(*perfiles_permitidos: str):
                     401
                 )
 
-            perfil = str(usuario.get("perfil", "")).strip().lower()
+            if (
+                not isinstance(usuario, dict)
+                or not isinstance(usuario.get("rut"), str)
+                or not usuario["rut"].strip()
+                or not isinstance(usuario.get("perfil"), str)
+                or not usuario["perfil"].strip()
+            ):
+                return _respuesta_error(
+                    "RESPUESTA_NUCLEO_INVALIDA",
+                    "La respuesta del núcleo no contiene un usuario y perfil válidos.",
+                    502
+                )
+
+            perfil = usuario["perfil"].strip().lower()
             if perfil not in perfiles_permitidos:
                 return _respuesta_error(
                     "PERFIL_NO_AUTORIZADO",
@@ -62,7 +76,7 @@ def requiere_perfiles(*perfiles_permitidos: str):
                     403
                 )
 
-            request.usuario = usuario
+            request.usuario = {**usuario, "rut": usuario["rut"].strip()}
             request.perfil = perfil
             request.token_bearer = partes[1]
             return vista(request, *args, **kwargs)

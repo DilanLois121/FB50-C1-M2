@@ -161,14 +161,14 @@ def validar_sesion_nucleo(token):
         ) from error
 
     except ValueError as error:
-        raise RuntimeError(
+        raise ValueError(
             "El núcleo devolvió una respuesta inválida."
         ) from error
 
     if not isinstance(usuario, dict):
-        raise RuntimeError("Formato de respuesta inválido.")
+        raise ValueError("Formato de respuesta inválido.")
 
     if not usuario.get("rut") or not usuario.get("perfil"):
-        raise RuntimeError("La respuesta no contiene los datos del usuario.")
+        raise ValueError("La respuesta no contiene los datos del usuario.")
 
     return usuario

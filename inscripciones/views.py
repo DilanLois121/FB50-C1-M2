@@ -7,7 +7,11 @@ from django.views.decorators.csrf import csrf_exempt
 from pymongo.errors import PyMongoError
 
 from .auth import requiere_perfiles
-from .serializers import ErrorValidacionInscripcion, InscripcionSerializer
+from .serializers import (
+    ErrorSalidaInscripcion,
+    ErrorValidacionInscripcion,
+    InscripcionSerializer,
+)
 from .services import (
     ErrorInscripciones,
     cambiar_estado_inscripcion,
@@ -26,10 +30,21 @@ def _respuesta_error(codigo: str, mensaje: str, estado: int) -> JsonResponse:
     )
 
 
+def _rechazar_constante_json(valor: str):
+    raise ValueError(f"Constante JSON no permitida: {valor}")
+
+
 def _leer_json(request):
+    if request.content_type != "application/json":
+        raise ErrorValidacionInscripcion(
+            "TIPO_CONTENIDO_INVALIDO",
+            "El tipo de contenido debe ser application/json.",
+            415
+        )
+
     try:
-        return json.loads(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+        return json.loads(request.body, parse_constant=_rechazar_constante_json)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         raise ErrorValidacionInscripcion(
             "JSON_INVALIDO",
             "El cuerpo de la petición debe contener JSON válido."
@@ -50,7 +65,11 @@ def api_inscripciones(request):
                 token=request.token_bearer,
             )
         except ErrorValidacionInscripcion as error:
-            return _respuesta_error(error.codigo, error.mensaje, 400)
+            return _respuesta_error(
+                error.codigo,
+                error.mensaje,
+                error.estado_http
+            )
         except ErrorInscripciones as error:
             return _respuesta_error(
                 error.codigo,
@@ -64,10 +83,15 @@ def api_inscripciones(request):
                 500
             )
 
-        return JsonResponse(
-            {"datos": InscripcionSerializer.representar(documento)},
-            status=201
-        )
+        try:
+            datos_salida = InscripcionSerializer.representar(documento)
+        except ErrorSalidaInscripcion:
+            return _respuesta_error(
+                "ERROR_RESPUESTA",
+                "No fue posible representar la inscripción guardada.",
+                500
+            )
+        return JsonResponse({"datos": datos_salida}, status=201)
 
     if request.method == "GET":
         try:
@@ -101,15 +125,24 @@ def api_inscripciones(request):
                 500
             )
 
+        try:
+            datos = [
+                InscripcionSerializer.representar(documento)
+                for documento in documentos
+            ]
+        except ErrorSalidaInscripcion:
+            return _respuesta_error(
+                "ERROR_RESPUESTA",
+                "No fue posible representar las inscripciones.",
+                500
+            )
+
         return JsonResponse({
             "page": page,
             "limit": limit,
             "total": total,
             "totalPaginas": (total + limit - 1) // limit,
-            "datos": [
-                InscripcionSerializer.representar(documento)
-                for documento in documentos
-            ],
+            "datos": datos,
         })
 
     return _respuesta_error(
@@ -139,7 +172,11 @@ def api_inscripcion_estado(request, inscripcion_id: str):
             token=request.token_bearer,
         )
     except ErrorValidacionInscripcion as error:
-        return _respuesta_error(error.codigo, error.mensaje, 400)
+        return _respuesta_error(
+            error.codigo,
+            error.mensaje,
+            error.estado_http
+        )
     except ErrorInscripciones as error:
         return _respuesta_error(error.codigo, error.mensaje, error.estado_http)
     except (PyMongoError, RuntimeError):
@@ -149,7 +186,12 @@ def api_inscripcion_estado(request, inscripcion_id: str):
             500
         )
 
-    return JsonResponse(
-        {"datos": InscripcionSerializer.representar(documento)},
-        status=200
-    )
+    try:
+        datos_salida = InscripcionSerializer.representar(documento)
+    except ErrorSalidaInscripcion:
+        return _respuesta_error(
+            "ERROR_RESPUESTA",
+            "No fue posible representar la inscripción actualizada.",
+            500
+        )
+    return JsonResponse({"datos": datos_salida}, status=200)
