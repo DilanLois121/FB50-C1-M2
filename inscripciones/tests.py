@@ -34,7 +34,7 @@ class InscripcionWebPageTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
-    def test_vecino_y_comunitario_reciben_la_pagina_con_api_y_token(self):
+    def test_vecino_y_comunitario_reciben_la_pagina_con_api_de_sesion(self):
         for perfil in ("vecino", "comunitario"):
             with self.subTest(perfil=perfil):
                 request = self.factory.get(reverse("mis_inscripciones"))
@@ -47,10 +47,10 @@ class InscripcionWebPageTests(SimpleTestCase):
                 contenido = respuesta.content.decode()
 
                 self.assertEqual(respuesta.status_code, 200)
-                self.assertIn("/api/operativos/inscripciones", contenido)
-                self.assertIn('"token-prueba"', contenido)
+                self.assertIn("/api/operativos/mis-inscripciones/datos/", contenido)
+                self.assertNotIn('"token-prueba"', contenido)
                 self.assertIn('name="animalId"', contenido)
-                self.assertIn("Authorization: `Bearer ${token}`", contenido)
+                self.assertIn('credentials: "same-origin"', contenido)
                 self.assertNotIn("rutSolicitante=", contenido)
 
     def test_sin_sesion_redirige_al_login(self):

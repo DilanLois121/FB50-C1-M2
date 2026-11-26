@@ -1,7 +1,7 @@
 """Vistas HTTP del recurso Inscripciones."""
 
 import json
-
+from common.nucleo_client import validar_sesion_nucleo
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -30,6 +30,7 @@ PERFILES_CONSULTA_WEB = {"vecino", "comunitario"}
 @require_GET
 def pagina_mis_inscripciones(request):
     token = request.session.get("token_nucleo")
+
     if not token:
         return redirect("iniciar_sesion")
 
@@ -42,11 +43,131 @@ def pagina_mis_inscripciones(request):
         request,
         "Inscripciones/inscripciones.html",
         {
-            "token_nucleo": token,
-            "api_url": reverse("api_inscripciones"),
+            "api_url": reverse("api_mis_inscripciones_web"),
         },
     )
 
+@require_GET
+def api_mis_inscripciones_web(request):
+    token = request.session.get("token_nucleo")
+
+    if not token:
+        return _respuesta_error(
+            "TOKEN_REQUERIDO",
+            "Debe iniciar sesión nuevamente.",
+            401
+        )
+
+    try:
+        usuario = validar_sesion_nucleo(token)
+    except RuntimeError:
+        return _respuesta_error(
+            "NUCLEO_NO_DISPONIBLE",
+            "No fue posible validar la sesión.",
+            503
+        )
+    except ValueError:
+        return _respuesta_error(
+            "RESPUESTA_NUCLEO_INVALIDA",
+            "No fue posible procesar la respuesta del núcleo.",
+            502
+        )
+
+    if usuario is None:
+        request.session.flush()
+        return _respuesta_error(
+            "TOKEN_INVALIDO",
+            "Su sesión ha expirado.",
+            401
+        )
+
+    rut = usuario.get("rut", "").strip()
+    perfil = usuario.get("perfil", "").strip().lower()
+
+    if (
+        rut != request.session.get("rut_usuario")
+        or perfil != request.session.get("perfil_usuario")
+    ):
+        request.session.flush()
+        return _respuesta_error(
+            "SESION_INVALIDA",
+            "La información de su sesión no coincide.",
+            401
+        )
+
+    if perfil not in PERFILES_CONSULTA_WEB:
+        return _respuesta_error(
+            "PERFIL_NO_AUTORIZADO",
+            "Su perfil no tiene permisos para este recurso.",
+            403
+        )
+
+    try:
+        page = int(request.GET.get("page", "1"))
+        limit = int(request.GET.get("limit", "20"))
+
+        estado = InscripcionSerializer.validar_filtro_estado(
+            request.GET.get("estado")
+        )
+
+        animal_id = InscripcionSerializer.validar_filtro_animal_id(
+            request.GET.get("animalId")
+        )
+
+    except (TypeError, ValueError):
+        return _respuesta_error(
+            "PAGINACION_INVALIDA",
+            "page y limit deben ser números enteros.",
+            400
+        )
+    except ErrorValidacionInscripcion as error:
+        return _respuesta_error(
+            error.codigo,
+            error.mensaje,
+            error.estado_http
+        )
+
+    if page < 1 or limit < 1 or limit > 100:
+        return _respuesta_error(
+            "PAGINACION_INVALIDA",
+            "page debe ser mayor que cero y limit debe estar entre 1 y 100.",
+            400
+        )
+
+    try:
+        total, documentos = listar_inscripciones(
+            page,
+            limit,
+            rut,
+            estado,
+            animal_id,
+        )
+    except (PyMongoError, RuntimeError):
+        return _respuesta_error(
+            "ERROR_BASE_DATOS",
+            "No fue posible consultar las inscripciones.",
+            500
+        )
+
+    try:
+        datos = [
+            InscripcionSerializer.representar(documento)
+            for documento in documentos
+        ]
+    except ErrorSalidaInscripcion:
+        return _respuesta_error(
+            "ERROR_RESPUESTA",
+            "No fue posible representar las inscripciones.",
+            500
+        )
+
+    return JsonResponse({
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "totalPaginas": (total + limit - 1) // limit,
+        "datos": datos,
+    })
 
 def _respuesta_error(codigo: str, mensaje: str, estado: int) -> JsonResponse:
     return JsonResponse(

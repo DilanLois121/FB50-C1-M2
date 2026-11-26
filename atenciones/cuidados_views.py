@@ -134,9 +134,7 @@ def api_agregar_nota_cuidado(request, cuidado_id):
 @require_GET
 @requiere_perfiles(
     "veterinario",
-    "funcionario",
-    "vecino",
-    "comunitario"
+    "funcionario"
 )
 def api_obtener_cuidado(request, inscripcion_id):
     try:

@@ -313,14 +313,10 @@
         </section>
     </main>
 
-    {{ token_nucleo|json_script:"nucleo-token" }}
     <script>
         (() => {
             const page = document.getElementById("consultation");
             const apiUrl = page.dataset.apiUrl;
-            const token = JSON.parse(
-                document.getElementById("nucleo-token").textContent
-            );
             const filterForm = document.getElementById("filter-form");
             const animalInput = document.getElementById("animal-id");
             const clearFilter = document.getElementById("clear-filter");
@@ -446,9 +442,10 @@
 
                 try {
                     const response = await fetch(`${apiUrl}?${parameters}`, {
+                        method: "GET",
+                        credentials: "same-origin",
                         headers: {
                             Accept: "application/json",
-                            Authorization: `Bearer ${token}`
                         }
                     });
                     let payload;
