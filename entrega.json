@@ -1,0 +1,138 @@
+{
+  "seccion": "TI3043/D-FB50-N4-P13-C1/D",
+  "modulo": 2,
+  "grupo": "G02",
+  "prototipo": "https://fb50-c1-m2.onrender.com",
+  "repositorio": "https://github.com/DilanLois121/FB50-C1-M2",
+  "taiga": "https://tree.taiga.io/project/bars-ti3043-fb50-c1-m2/timeline",
+  "integrantes": [
+    {
+      "nombre": "Yamil Nayen",
+      "github": "yamill22",
+      "taiga": "yamil__nn",
+      "rol": "Responsable de calidad"
+    },
+    {
+      "nombre": "Benjamin Ragga",
+      "github": "JJBars23",
+      "taiga": "bars",
+      "rol": "Arquitecto"
+    },
+    {
+      "nombre": "Gohans Tapia",
+      "github": "GTAPIA14",
+      "taiga": "g0hanss",
+      "rol": "Scrum Master"
+    },
+    {
+      "nombre": "Dilan Lois",
+      "github": "DilanLois121",
+      "taiga": "Dilan121",
+      "rol": "Product Owner"
+    },
+    {
+      "nombre": "Juan Álvarez",
+      "github": "juanito",
+      "taiga": "juanssdgd",
+      "rol": "Analista"
+    }
+  ],
+  "historias": [
+    {
+      "id": "HU-01",
+      "titulo": "Creación de operativos",
+      "responsable": "yamill22",
+      "verificacion": {
+        "metodo": "POST",
+        "ruta": "/api/operativos",
+        "perfil": "funcionario",
+        "cuerpo": {
+          "tipoOperativo": "esterilizacion",
+          "fechaHora": "2026-12-03T13:00:00Z",
+          "sedeId": "SV-06",
+          "cuposPorEspecie": [
+            {
+              "especieId": "ESP-PERRO",
+              "total": 10
+            },
+            {
+              "especieId": "ESP-GATO",
+              "total": 10
+            }
+          ]
+        },
+        "esperado": 201
+      }
+    },
+    {
+      "id": "HU-02",
+      "titulo": "Solicitud de inscripción a operativo",
+      "responsable": "JJBars23",
+      "verificacion": {
+        "metodo": "POST",
+        "ruta": "/api/operativos/inscripciones",
+        "perfil": "comunitario",
+        "cuerpo": {
+          "operativoId": "6b0796690e53d56ffb65bcc8",
+          "animalId": "SIM-000010"
+        },
+        "esperado": 201
+      }
+    },
+    {
+      "id": "HU-03",
+      "titulo": "Gestión de inscripciones",
+      "responsable": "JJBars23",
+      "verificacion": {
+        "metodo": "PATCH",
+        "ruta": "/api/operativos/inscripciones/6b07966b0e53d56ffb65bcc9/estado",
+        "perfil": "funcionario",
+        "cuerpo": {
+          "estado": "confirmada"
+        },
+        "esperado": 200
+      }
+    },
+    {
+      "id": "HU-04",
+      "titulo": "Registro de esterilizaciones",
+      "responsable": "GTAPIA14",
+      "verificacion": {
+        "metodo": "POST",
+        "ruta": "/api/operativos/atenciones/6b07966b0e53d56ffb65bcc9",
+        "perfil": "veterinario",
+        "cuerpo": {},
+        "esperado": 201
+      }
+    },
+    {
+      "id": "HU-05",
+      "titulo": "Registro de cuidados",
+      "responsable": "juanito",
+      "verificacion": {
+        "metodo": "POST",
+        "ruta": "/api/operativos/cuidados/6b07966b0e53d56ffb65bcc9",
+        "perfil": "veterinario",
+        "cuerpo": {
+          "indicaciones": "Reposo y observacion durante 48 horas.",
+          "medicamentos": [
+            "Analgesico segun indicacion veterinaria"
+          ],
+          "detalle_quirurgico": "Procedimiento de esterilizacion registrado."
+        },
+        "esperado": 201
+      }
+    },
+    {
+      "id": "HU-06",
+      "titulo": "Consulta de estado del procedimiento",
+      "responsable": "DilanLois121",
+      "verificacion": {
+        "metodo": "GET",
+        "ruta": "/api/operativos/inscripciones?page=1&limit=20",
+        "perfil": "comunitario",
+        "esperado": 200
+      }
+    }
+  ]
+}
